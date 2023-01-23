@@ -1,0 +1,34 @@
+0:
+  name: "Do nothing"
+  transition: "plain"
+1:
+  name: "Minor repair"
+  transition: "minor"
+2:
+  name: "Major repair"
+  shift_back_deter_rate: 5
+  transition: "major"
+3:
+  name: "Do nothing - Low Fidelity inspection"
+  transition: "plain"
+4:
+  name: "Minor repair - Low Fidelity inspection"
+  transition: "minor"
+5:
+  name: "Major repair - Low Fidelity inspection"
+  shift_back_deter_rate: 5
+  transition: "major"
+6:
+  name: "Do nothing - High Fidelity inspection"
+  transition: "plain"
+7:
+  name: "Minor repair - High Fidelity inspection"
+  transition: "minor"
+8:
+  name: "Major repair - High Fidelity inspection"
+  shift_back_deter_rate: 5
+  transition: "major"
+9:
+  name: "Replace"
+  reset_deter_rate: True
+  transition: "replace"
