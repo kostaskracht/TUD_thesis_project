@@ -196,10 +196,13 @@ def my_draw_networkx_edge_labels(
     return text_items
 
 
-def plot_graph(coords, edges, flow, title=None):
+def plot_graph(coords, edges, flow, title=None, edge_labels=None):
     G = nx.DiGraph()
     plt.rcParams["figure.figsize"] = (10, 10)
     plt.rcParams.update({'font.size': 9})
+
+    if not edge_labels:
+        edge_labels = np.arange(edges)
 
     for idx, value in enumerate(coords):
         G.add_node(int(value[0]), pos=(value[1], value[2]))
@@ -207,7 +210,7 @@ def plot_graph(coords, edges, flow, title=None):
 
     edge_list = []
     for idx, edge in enumerate(edges):
-        edge_list.append((edge[0], edge[1], {"w": f"{idx + 1}"}))
+        edge_list.append((edge[0], edge[1], {"w": f"{edge_labels[idx] + 1}"}))
     G.add_edges_from(edge_list)
 
     fig, ax = plt.subplots()

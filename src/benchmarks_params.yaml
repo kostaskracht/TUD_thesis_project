@@ -1,0 +1,21 @@
+env_name: "thesis-env-v1"
+seed: 123
+modes: ["condition"]
+iters: 3
+save: True
+time: # timestep intervals (both inclusive)
+  inspect_interval_min: null
+  inspect_interval_max: null
+  minor_repair_interval_min: null
+  minor_repair_interval_max: null
+  replace_interval_min: null
+  replace_interval_max: null
+condition: # timestep intervals for inspection, state thresholds for maintenance
+  inspect_interval_min: null
+  inspect_interval_max: null
+  minor_repair_threshold_min: null
+  minor_repair_threshold_max: null
+  major_repair_threshold_min: null
+  major_repair_threshold_max: null
+  replace_threshold_min: null
+  replace_threshold_max: null

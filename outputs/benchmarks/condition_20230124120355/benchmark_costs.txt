@@ -1,0 +1,2 @@
+Results for best condition benchmark
+inspect int: 1, minor_repair res: 1, major_repair res: 8,replace res: 11

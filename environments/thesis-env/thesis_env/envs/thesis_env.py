@@ -6,9 +6,12 @@ import os
 import numpy as np
 from copy import copy, deepcopy
 
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
 import sys
-sys.path.append("../../../../src/traffic_assignment")
-from assignment import load_network, assignment_loop, BPRcostFunction
+# sys.path.append("../../../../src/traffic_assignment")
+# from assignment import load_network, assignment_loop, BPRcostFunction
 
 
 class ThesisEnv(gym.Env):
@@ -77,45 +80,46 @@ class ThesisEnv(gym.Env):
 
         self.episode_cost = 0
 
-        # Initialize road as graph network
-        self.net_file = "data/init_data/sioux_falls/SiouxFalls_net.csv"
-        self.road_network = load_network(net_file=self.net_file)
-        # For debugging purposes, to play with the capacity
-        # for link in self.road_network.linkSet:
-        #     self.road_network.linkSet[link].capacity = self.road_network.linkSet[link].capacity
-
-        # If we only kept some of the network components, remove the rest
-        if self.components_to_keep:
-            road_network_tmp = deepcopy(self.road_network)
-            for key, link in copy(road_network_tmp.linkSet).items():
-                if link.comp_idx not in self.components:
-                    del road_network_tmp.linkSet[key]
-                    road_network_tmp.nodeSet[key[0]].outLinks.remove(key[1])
-                    road_network_tmp.nodeSet[key[1]].inLinks.remove(key[0])
-
-            del_nodes = []
-            for key, node in copy(road_network_tmp.nodeSet).items():
-                if (len(node.inLinks) == 0) and (len(node.outLinks) == 0):
-                    del_nodes.append(key)
-                    del road_network_tmp.nodeSet[key]
-                    road_network_tmp.originZones.remove(key)
-                    del road_network_tmp.zoneSet[key]
-
-            # self.road_network = deepcopy(road_network_tmp)
-            for key, trip in copy(road_network_tmp.tripSet).items():
-                if (key[0] in del_nodes) or (key[1] in del_nodes):
-                    del road_network_tmp.tripSet[key]
-
-            for key, trip in copy(road_network_tmp.zoneSet).items():
-                for node in road_network_tmp.zoneSet[key].destList:
-                    road_network_tmp.zoneSet[key].destList = list(i for i in
-                                                              road_network_tmp.zoneSet[
-                                                                  key].destList if i not in del_nodes)
-                    # if (node in del_nodes):
-                    #     road_network_tmp.zoneSet[key].destList.remove(node)
-
-
-            self.road_network = road_network_tmp
+        # [DEMO] Removing traffic network related content
+        # # Initialize road as graph network
+        # self.net_file = "data/init_data/sioux_falls/SiouxFalls_net.csv"
+        #  self.road_network = load_network(net_file=self.net_file)
+        # # For debugging purposes, to play with the capacity
+        # # for link in self.road_network.linkSet:
+        # #     self.road_network.linkSet[link].capacity = self.road_network.linkSet[link].capacity
+        #
+        # # If we only kept some of the network components, remove the rest
+        # if self.components_to_keep:
+        #     road_network_tmp = deepcopy(self.road_network)
+        #     for key, link in copy(road_network_tmp.linkSet).items():
+        #         if link.comp_idx not in self.components:
+        #             del road_network_tmp.linkSet[key]
+        #             road_network_tmp.nodeSet[key[0]].outLinks.remove(key[1])
+        #             road_network_tmp.nodeSet[key[1]].inLinks.remove(key[0])
+        #
+        #     del_nodes = []
+        #     for key, node in copy(road_network_tmp.nodeSet).items():
+        #         if (len(node.inLinks) == 0) and (len(node.outLinks) == 0):
+        #             del_nodes.append(key)
+        #             del road_network_tmp.nodeSet[key]
+        #             road_network_tmp.originZones.remove(key)
+        #             del road_network_tmp.zoneSet[key]
+        #
+        #     # self.road_network = deepcopy(road_network_tmp)
+        #     for key, trip in copy(road_network_tmp.tripSet).items():
+        #         if (key[0] in del_nodes) or (key[1] in del_nodes):
+        #             del road_network_tmp.tripSet[key]
+        #
+        #     for key, trip in copy(road_network_tmp.zoneSet).items():
+        #         for node in road_network_tmp.zoneSet[key].destList:
+        #             road_network_tmp.zoneSet[key].destList = list(i for i in
+        #                                                       road_network_tmp.zoneSet[
+        #                                                           key].destList if i not in del_nodes)
+        #             # if (node in del_nodes):
+        #             #     road_network_tmp.zoneSet[key].destList.remove(node)
+        #
+        #
+        #     self.road_network = road_network_tmp
 
         # Initialize buffer to keep traffic assignment solutions
         self.traffic_assignment_solutions = {}
@@ -236,30 +240,32 @@ class ThesisEnv(gym.Env):
         # Add up the costs from actions
         step_cost[0] = cost_action + cost_insp
 
-        # Calculate the traffic flows in the network per month
-        # comp traffic can be either (components x months)
-        total_travel_time, comp_traffic = self._traffic_assignment(action, is_comp_active)
-
-        # Visualize the road network
-        if self.plot_road_network:
-            from visualize_road_network import plot_graph
-            node_ids_in_use = []
-            for idx, coord in enumerate(self.node_coords):
-                if coord[0] in self.edges[self.components]:
-                    node_ids_in_use.append(idx)
-            plot_graph(np.asarray(self.node_coords)[node_ids_in_use], self.edges[self.components],
-                                  comp_traffic[:, 0], title=f"Timestep {self.time_count}, "
-                                                            f"Month {'January'}, "
-                                                            f"closed segments "
-                                                            f"{np.where(act_real != 0)[0]}")
-        #/self.capacity[
-        # self.components])
-
-        # Calculate the total carbon footprint for this step
-        step_cost[1] = self._compute_carbon_footprint(comp_traffic)
-
-        # Calculate the total travel time
-        step_cost[2] = np.sum(total_travel_time)
+        # # [DEMO] Comment-out below code block to remove CO2 and traffic time objectives
+        # # Calculate the traffic flows in the network per month
+        # # comp traffic can be either (components x months)
+        # total_travel_time, comp_traffic = self._traffic_assignment(action, is_comp_active)
+        #
+        # # Visualize the road network
+        # if self.plot_road_network:
+        #     from visualize_road_network import plot_graph
+        #     node_ids_in_use = []
+        #     for idx, coord in enumerate(self.node_coords):
+        #         if coord[0] in self.edges[self.components]:
+        #             node_ids_in_use.append(idx)
+        #     plot_graph(np.asarray(self.node_coords)[node_ids_in_use], self.edges[self.components],
+        #                           comp_traffic[:, 0], title=f"Timestep {self.time_count}, "
+        #                                                     f"Month {'January'}, "
+        #                                                     f"closed segments "
+        #                                                     f"{np.where(act_real != 0)[0]}",
+        #                edge_labels=self.components)
+        # #/self.capacity[
+        # # self.components])
+        #
+        # # Calculate the total carbon footprint for this step
+        # step_cost[1] = self._compute_carbon_footprint(comp_traffic)
+        #
+        # # Calculate the total travel time
+        # step_cost[2] = np.sum(total_travel_time)
 
         # Updating the ongoing actions
         self.act_ongoing = act_ongoing_tmp
@@ -285,11 +291,13 @@ class ThesisEnv(gym.Env):
         if self.plot_states:
             self._visualize_states(0, action, save=True)
 
-        return self.states_nn, -step_cost / self.norm_factor, done, {"actions": action,
+        # [DEMO] Getting only the cost component of the reward + remove (-) from cost!
+        return self.states_nn, (step_cost / self.norm_factor)[0], done, {"actions": action,
                                                                      "costs": step_cost,
                                                                      "states_cci": self.states_cci,
                                                                      "states_iri": self.states_iri,
-                                                                     "traffic": comp_traffic[:, 0]}
+                                                                     # "traffic": comp_traffic[:, 0]
+                                                                          }
 
     # def reset(self):
     def reset(self, *, seed=None, options=None, ):
@@ -362,10 +370,12 @@ class ThesisEnv(gym.Env):
         act_real = np.zeros(self.num_components, dtype=int)
 
         # Check if any component is in terminal state
-        state_cci_inf = np.array([np.random.choice(range(self.num_states_cci), replace=True,
-                                             p=state_probs) for state_probs in self.states_cci])
-        state_iri_inf = np.array([np.random.choice(range(self.num_states_iri), replace=True,
-                                             p=state_probs) for state_probs in self.states_iri])
+        # state_cci_inf = np.array([np.random.choice(range(self.num_states_cci), replace=True,
+        #                                      p=state_probs) for state_probs in self.states_cci])
+        # state_iri_inf = np.array([np.random.choice(range(self.num_states_iri), replace=True,
+        #                                      p=state_probs) for state_probs in self.states_iri])
+        state_cci_inf = np.argmax(self.states_cci, axis=1)
+        state_iri_inf = np.argmax(self.states_iri, axis=1)
         # for idx, act in enumerate(action):
         #     if state_iri_inf[idx] == 4:
         #         act_real[idx] = 3 * (act // 3) + 2 # major repair if IRI state is 5
