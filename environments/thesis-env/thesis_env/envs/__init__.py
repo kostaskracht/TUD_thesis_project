@@ -1,1 +1,1 @@
-from mvp_road_env.envs.mvp_road_env import RoadEnv
+from thesis_env.envs.thesis_env import ThesisEnv
