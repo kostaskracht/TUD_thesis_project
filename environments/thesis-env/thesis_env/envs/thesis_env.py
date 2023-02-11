@@ -6,9 +6,8 @@ import os
 import numpy as np
 from copy import copy, deepcopy
 
-import sys
-sys.path.append("../../../../src/traffic_assignment")
-from assignment import load_network, assignment_loop, BPRcostFunction
+from thesis_env.envs.assignment import load_network, assignment_loop, BPRcostFunction
+from thesis_env.envs.visualize_road_network import plot_graph
 
 
 class ThesisEnv(gym.Env):
@@ -57,15 +56,11 @@ class ThesisEnv(gym.Env):
         self.action_space = spaces.MultiDiscrete([(self.num_actions)]*self.num_components)
 
         # Define the state space
-        # self.observation_space = spaces.MultiDiscrete([(self.num_states_cci ,self.num_states_iri)]*self.num_components)
+        self.observation_space = spaces.MultiDiscrete([self.num_states_iri]*self.num_components)
 
         # Compute the total cost per action
         self.c_act = self.c_mai + self.c_ins
         # self.c_act = self.compute_action_cost()
-
-        # Reset the environment
-        self.reset()
-        self.time_count = 0
 
         self.transitions = {
             "plain": {"cci": self.tp_cci_plain, "iri": self.tp_iri_plain},
@@ -118,6 +113,19 @@ class ThesisEnv(gym.Env):
 
             self.road_network = road_network_tmp
 
+        for key, link in self.road_network.linkSet.items():
+            self.road_network.linkSet[key].beta = 2
+
+        _ = assignment_loop(
+            network=self.road_network, algorithm="FW",
+            systemOptimal=False,
+            costFunction=BPRcostFunction,
+            accuracy=0.02, maxIter=200, maxTime=6000000, verbose=False)
+
+        for key, link in self.road_network.linkSet.items():
+            self.road_network.linkSet[key].flow_init = self.road_network.linkSet[key].flow
+
+
         # Initialize buffer to keep traffic assignment solutions
         self.traffic_assignment_solutions = {}
 
@@ -127,13 +135,17 @@ class ThesisEnv(gym.Env):
         if not self.norm_factor:
             self.norm_factor = np.zeros(self.num_objectives)
             self.norm_factor[0] = np.sum(np.max(np.abs(self.c_mai + self.c_ins)[self.actions],
-                                                axis=1))
+                                                axis=1))/5
             avg_carbon = np.sum(np.asarray(self.transport_types) *  np.asarray(
                 self.carbon_foot_by_type))
             self.norm_factor[1] = np.sum(self.comp_len[self.components] * self.capacity[
                 self.components]) * avg_carbon * 12
             self.norm_factor[2] = np.sum(self.comp_len[self.components] * self.capacity[
                 self.components]) * 10 * 12
+
+        # Reset the environment
+        self.reset()
+        self.time_count = 0
 
     def step(self, action: np.ndarray):
         """
@@ -242,11 +254,10 @@ class ThesisEnv(gym.Env):
 
         # Calculate the traffic flows in the network per month
         # comp traffic can be either (components x months)
-        total_travel_time, comp_traffic = self._traffic_assignment(action, is_comp_active)
+        # total_travel_time, comp_traffic = self._traffic_assignment(action, is_comp_active)
 
         # Visualize the road network
         if self.plot_road_network:
-            from visualize_road_network import plot_graph
             node_ids_in_use = []
             for idx, coord in enumerate(self.node_coords):
                 if coord[0] in self.edges[self.components]:
@@ -276,10 +287,10 @@ class ThesisEnv(gym.Env):
 
 
         # Calculate the total carbon footprint for this step
-        step_cost[1] = self._compute_carbon_footprint(comp_traffic)
+        # step_cost[1] = self._compute_carbon_footprint(comp_traffic)
 
         # Calculate the total travel time
-        step_cost[2] = np.sum(total_travel_time)
+        # step_cost[2] = np.sum(total_travel_time)
 
         # Updating the ongoing actions
         self.act_ongoing = act_ongoing_tmp
@@ -309,10 +320,11 @@ class ThesisEnv(gym.Env):
         if self.plot_states:
             self._visualize_states(0, action, save=True)
 
-        return self.states_nn, -step_cost / self.norm_factor, done, {"actions": action,
-                                                                     "costs": step_cost,
-                                                                     "states_iri": self.states_iri,
-                                                                     "traffic": comp_traffic[:, 0]}
+        return self.states_nn, step_cost / self.norm_factor, done, {}
+        # {"actions": action,
+        #                                                              "costs": step_cost,
+        #                                                              "states_iri": self.states_iri,
+        #                                                              "traffic": comp_traffic[:, 0]}
 
     # def reset(self):
     def reset(self, *, seed=None, options=None, ):
@@ -343,6 +355,10 @@ class ThesisEnv(gym.Env):
         else:
             self.states_nn = np.concatenate(
                 [self.states_iri.flatten(),  self.time[:, self.time_count] / self.timesteps])
+
+
+        for key, link in self.road_network.linkSet.items():
+            self.road_network.linkSet[key].flow = self.road_network.linkSet[key].flow_init
         return
 
     def render(self, mode='human', close=False):
@@ -408,14 +424,14 @@ class ThesisEnv(gym.Env):
         action[state_iri_inf == self.num_states_iri - 1] = 9 # replacement if IRI state is terminal
 
         if self.use_cci_state:
-            urgent_comps = np.where((state_iri_inf == self.num_states_iri - 1) | (state_cci_inf ==
+            self.urgent_comps = np.where((state_iri_inf == self.num_states_iri - 1) | (state_cci_inf ==
                                                                          self.num_states_cci - 1))[0]
         else:
-            urgent_comps = np.where(state_iri_inf == self.num_states_iri - 1)[0]
+            self.urgent_comps = np.where(state_iri_inf == self.num_states_iri - 1)[0]
 
-        cost_action_urgent = sum(self.c_mai[urgent_comps,action[urgent_comps]])*1.5 # Assume that
+        cost_action_urgent = sum(self.c_mai[self.urgent_comps,action[self.urgent_comps]])*1.5 # Assume that
         # urgent actions cost 50% more
-        cost_ins_urgent = self.gamma*sum(self.c_ins[urgent_comps,action[urgent_comps]])*1.5 # Assume that
+        cost_ins_urgent = self.gamma*sum(self.c_ins[self.urgent_comps,action[self.urgent_comps]])*1.5 # Assume that
         # urgent actions cost 50% more
 
         if self.limit_budget:
@@ -424,7 +440,7 @@ class ThesisEnv(gym.Env):
             else:
                 comp_active_cand = [i for i in range(self.num_components) if i not in np.where(
                     self.act_ongoing)[0]]
-                comp_active_cand = [i for i in comp_active_cand if i not in urgent_comps]
+                comp_active_cand = [i for i in comp_active_cand if i not in self.urgent_comps]
 
                 cost_action = sum(self.c_mai[comp_active_cand,action[comp_active_cand]])
                 cost_ins = self.gamma*sum(self.c_ins[comp_active_cand,action[comp_active_cand]])
@@ -449,21 +465,23 @@ class ThesisEnv(gym.Env):
                             step_cost_actual += self.gamma * self.c_ins[j][action[j]]
 
                 #action_real = np.zeros((1,tot_comp),dtype = int)
-            act_real[comp_active + list(urgent_comps)] = action[comp_active + list(urgent_comps)]
+            act_real[comp_active + list(self.urgent_comps)] = action[comp_active + list(self.urgent_comps)]
             cost_ins = self.gamma*sum(self.c_ins[comp_active,action[comp_active]]) + \
-                       self.gamma*sum(self.c_ins[urgent_comps,action[urgent_comps]])
+                       self.gamma*sum(self.c_ins[self.urgent_comps,action[self.urgent_comps]])
             cost_action = sum(self.c_mai[comp_active,action[comp_active]]) + cost_action_urgent
             # cost_delay = sum(self.c_delay[comp_active,action[comp_active]])
 
             is_component_active = np.zeros(self.num_components, dtype=bool)
-            is_component_active[comp_active + list(urgent_comps)] = True
+            is_component_active[comp_active + list(self.urgent_comps)] = True
 
         # If no budget limit is applied
         else:
             act_real = action
             is_component_active = np.ones(self.num_components, dtype=bool)
-            cost_action = sum(self.c_mai[self.components, action])
-            cost_ins = self.gamma*sum(self.c_ins[self.components, action])
+            cost_action = sum(self.c_mai[self.components, action]) + \
+                          sum(self.c_mai[self.urgent_comps,action[self.urgent_comps]]) * 0.5
+            cost_ins = self.gamma*sum(self.c_ins[self.components, action]) + \
+                       self.gamma * sum(self.c_ins[self.urgent_comps, action[self.urgent_comps]]) * 0.5
 
         return cost_action, cost_ins, is_component_active, act_real, action
 
@@ -673,7 +691,7 @@ class ThesisEnv(gym.Env):
         for key, link in self.road_network.linkSet.items():
             # self.road_network.linkSet[key].capacity = self.road_network.linkSet[
             #     key].max_capacity
-            # self.road_network.linkSet[key].flow = 0.
+
             if link.comp_idx in ongoing_actions:
                 self.road_network.linkSet[key].capacity = self.road_network.linkSet[
                     key].max_capacity * self.closure_perc
@@ -681,15 +699,11 @@ class ThesisEnv(gym.Env):
                 self.road_network.linkSet[key].capacity = self.road_network.linkSet[
                     key].max_capacity
 
+            # self.road_network.linkSet[key].flow = self.road_network.linkSet[key].capacity / 2
+            # self.road_network.linkSet[key].flow = 0
 
-        # nodes = list(road_network_cur.nodeSet.keys())
-        # # nodes_with_edges = list(set([string for tuple in list(road_network_cur.linkSet.keys())
-        # #                              for string in tuple]))
-        # out_nodes = list(set([tuple[1] for tuple in list(road_network_cur.linkSet.keys())]))
-        # in_nodes = list(set([tuple[0] for tuple in list(road_network_cur.linkSet.keys())]))
-        # nodes.sort()
-        # in_nodes.sort()
-        # out_nodes.sort()
+            # Reinitialize the flow of the link with the "Do Nothing" flow
+            self.road_network.linkSet[key].flow = self.road_network.linkSet[key].flow_init
 
         TSTT = assignment_loop(
             network=self.road_network, algorithm="FW",
@@ -727,7 +741,7 @@ if __name__ == "__main__":
     logging.disable(logging.WARNING)
     os.chdir("../../../..")
 
-    episodes = 50
+    episodes = 10
     env = ThesisEnv()
     env.quiet = True
     results = []
@@ -770,9 +784,10 @@ if __name__ == "__main__":
             #     cur_action += 3
             # elif i % 7 == 0 and cur_action != 9: # high fidelity inspection
             #     cur_action += 6
-            cur_action = np.random.choice(env.actions, size=env.num_components, replace=True,
-                                       p=[0.8] + [0.2/(env.num_actions-1)]*(env.num_actions-1)
-                                          )
+            # cur_action = np.random.choice(env.actions, size=env.num_components, replace=True,
+            #                            p=[0.8] + [0.2/(env.num_actions-1)]*(env.num_actions-1)
+            #                               )
+            # cur_action = np.zeros(env.num_components, dtype=int)
 
             # When actions are being taken from the NN, filter them like: env.actions[actions] TODO
             # print(f"Current action is {cur_action}")
@@ -795,6 +810,21 @@ if __name__ == "__main__":
             #     cur_action = np.ones(env.num_components, dtype=int)*9
             # else:
             #     cur_action = np.ones(env.num_components, dtype=int)*0
+
+            # CBM best setting
+            cur_action = [0] * env.num_components
+            for comp in range(env.num_components):
+                mean_state_iri = np.random.choice(range(env.states_iri.shape[1]), 1,
+                                                  p=env.states_iri[comp])
+                mean_state = np.max([mean_state_iri])
+                if mean_state >= 5:
+                    cur_action[comp] = 4
+                elif mean_state >= 2:
+                    cur_action[comp] = 1
+                # elif mean_state >= minor_repair_thres:
+                #     action[comp] = 1
+                if (i % 1 == 0) and (cur_action[comp] != 4):
+                    cur_action[comp] += 2
 
             states, step_cost, done, metadata = env.step(cur_action)
             # states, step_cost, done, _ = env.step(np.array([cur_action] * env.num_components))
@@ -826,4 +856,10 @@ if __name__ == "__main__":
         # # np.save("states_cci_env.npy", states_cci)
         # np.save("states_iri_env_case4.npy", states_iri)
         # np.save("traffic_env_case4.npy", traffic)
-    np.savetxt("results.csv", results, delimiter=",")
+    # np.savetxt("timing_zero_each_time.csv", results, delimiter=",")
+    # np.savetxt("timing_reset_to_init_problem.csv", results, delimiter=",")
+    # np.savetxt("timing_leave_previous.csv", results, delimiter=",")
+    # np.savetxt("timing_half_capacity.csv", results, delimiter=",")
+    # np.savetxt("timing_beta_4.csv", results, delimiter=",")
+    # np.savetxt("timing_beta_3.csv", results, delimiter=",")
+    # np.savetxt("timing_beta_2.csv", results, delimiter=",")

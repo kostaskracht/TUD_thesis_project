@@ -1,0 +1,10 @@
+gym
+pyyaml
+matplotlib
+numpy
+networkx
+pandas
+scipy
+openmatrix
+cvxpy
+tqdm

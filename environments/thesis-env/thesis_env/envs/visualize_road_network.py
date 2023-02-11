@@ -196,10 +196,13 @@ def my_draw_networkx_edge_labels(
     return text_items
 
 
-def plot_graph(coords, edges, flow, title=None):
+def plot_graph(coords, edges, flow, title=None, min_max=[0,5]):
     G = nx.DiGraph()
     plt.rcParams["figure.figsize"] = (10, 10)
     plt.rcParams.update({'font.size': 9})
+
+    vmin = min_max[0]
+    vmax = min_max[1]
 
     for idx, value in enumerate(coords):
         G.add_node(int(value[0]), pos=(value[1], value[2]))
@@ -222,7 +225,7 @@ def plot_graph(coords, edges, flow, title=None):
     # Set color scale based on the flow
     color_values = flow
     cmap = plt.cm.RdYlGn_r
-    norm = colors.Normalize(vmin=0, vmax=5)
+    norm = colors.Normalize(vmin=vmin, vmax=vmax)
     cols = cmap(norm(color_values))
     nx.draw_networkx_edges(G, pos, ax=ax, edgelist=curved_edges,
                            connectionstyle=f'bar, fraction=0.04',

@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.optimize import fsolve
 import warnings
 
-from network_import import *
+from thesis_env.envs.network_import import *
 # from utils import PathUtils
 import os
 
@@ -387,7 +387,7 @@ def assignment_loop(network: FlowTransportNetwork,
     # Check if desired accuracy is reached
     while gap > accuracy:
 
-        # Get x_bar throug all-or-nothing assignment
+        # Get x_bar through all-or-nothing assignment
         _, x_bar = loadAON(network=network)
 
         if algorithm == "MSA" or iteration_number == 1:
@@ -579,7 +579,7 @@ def computeAssingment(net_file: str,
 
 if __name__ == '__main__':
 
-    os.chdir("../..")
+    os.chdir("../../../..")
     # This is an example usage for calculating System Optimal and User Equilibrium with Frank-Wolfe
 
     net_file = "data/init_data/sioux_falls/SiouxFalls_net.csv"

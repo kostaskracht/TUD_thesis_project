@@ -298,7 +298,7 @@ class InitDataPrep():
             np.savetxt(f"{self.output_data_path}/{filename}.csv", attr, delimiter=",")
 
 if __name__ == "__main__":
-    os.chdir("../..")
+    os.chdir("..")
 
     prep = InitDataPrep()
 
