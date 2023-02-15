@@ -142,6 +142,8 @@ class ThesisEnv(gym.Env):
                 self.components]) * avg_carbon * 12
             self.norm_factor[2] = np.sum(self.comp_len[self.components] * self.capacity[
                 self.components]) * 10 * 12
+        else:
+            self.norm_factor = np.asarray(self.norm_factor)
 
         # Reset the environment
         self.reset()
@@ -166,8 +168,7 @@ class ThesisEnv(gym.Env):
         # inspection_flag = np.zeros(self.num_inspections, dtype=bool)
 
         # Calculate the immediate costs
-        cost_action, cost_insp, is_comp_active, act_real, action = self.get_immediate_cost(
-            # self.actions[action])
+        cost_action, cost_insp, is_comp_active, act_real, action, cost_risk = self.get_immediate_cost(
             action)
 
         # Initialize the tmp variable for ongoing actions
@@ -202,15 +203,13 @@ class ThesisEnv(gym.Env):
 
                 # Check if states shift is a result of the selected action
                 if "shift_back_deter_rate" in self.action_results[cur_action]:
-                    self._shift_deter_rate(idx, shift=self.action_results[cur_action][
-                        "shift_back_deter_rate"])
+                    self._shift_deter_rate(idx, shift=self.action_results[cur_action]["shift_back_deter_rate"])
 
                 # Check the type of transition to perform
                 if not "transition" in self.action_results[cur_action]:
                     raise ValueError(f"No transition type has been specified for action {cur_action}")
                 else:
-                    self._update_states(idx, self.transitions[self.action_results[cur_action][
-                        "transition"]])
+                    self._update_states(idx, self.transitions[self.action_results[cur_action]["transition"]])
 
             # If the component is not active, update the states with "do nothing" transition matrix
             elif (not is_comp_active[idx]) and (not self.act_ongoing[idx]):
@@ -229,11 +228,9 @@ class ThesisEnv(gym.Env):
 
                 obs_dist_iri = self.states_iri[idx] @ self.obs_probs_iri[idx, cur_action_fin]
                 obs_dist_iri = obs_dist_iri/np.sum(obs_dist_iri)
-                obs_iri = np.random.choice(range(self.num_states_iri), size=None, replace=True,
-                                           p=obs_dist_iri)
+                obs_iri = np.random.choice(range(self.num_states_iri), size=None, replace=True, p=obs_dist_iri)
 
-                update_iri = self.states_iri[idx] * self.obs_probs_iri[idx, cur_action_fin, :,
-                                                    obs_iri]
+                update_iri = self.states_iri[idx] * self.obs_probs_iri[idx, cur_action_fin, :, obs_iri]
                 self.states_iri[idx] = update_iri / np.sum(update_iri)
 
                 if self.use_cci_state:
@@ -250,7 +247,7 @@ class ThesisEnv(gym.Env):
 
         # For the whole system
         # Add up the costs from actions
-        step_cost[0] = cost_action + cost_insp
+        step_cost[0] = cost_action + cost_insp + cost_risk
 
         # Calculate the traffic flows in the network per month
         # comp traffic can be either (components x months)
@@ -305,15 +302,14 @@ class ThesisEnv(gym.Env):
                 [self.states_cci.flatten(), self.states_iri.flatten(),  self.time[:, self.time_count]
                  / self.timesteps])
         else:
-            self.states_nn = np.concatenate(
-                [self.states_iri.flatten(),  self.time[:, self.time_count] / self.timesteps])
+            self.states_nn = np.concatenate([self.states_iri.flatten()])
 
         # Update the timestep
         self.time_count += 1
 
         # Log results
         if not self.quiet:
-            print(f"Timestep: {self.time_count - 1}, Action: {act_real}, Cost: "
+            print(f"Timestep: {self.time_count - 1}, Action: {action}, Cost: "
                   f"{step_cost / self.norm_factor}")
 
         # Visualize the states of a component
@@ -353,8 +349,7 @@ class ThesisEnv(gym.Env):
             self.states_nn = np.concatenate([self.states_cci.flatten(), self.states_iri.flatten(),
                                          self.time[:, self.time_count] / self.timesteps])
         else:
-            self.states_nn = np.concatenate(
-                [self.states_iri.flatten(),  self.time[:, self.time_count] / self.timesteps])
+            self.states_nn = np.concatenate([self.states_iri.flatten()])
 
 
         for key, link in self.road_network.linkSet.items():
@@ -411,6 +406,16 @@ class ThesisEnv(gym.Env):
                 setattr(self, key.split(pattern)[0], file_values)
 
     def get_immediate_cost(self, action):
+        act_real = action
+        is_component_active = np.ones(self.num_components, dtype=bool)
+        cost_action = sum(self.c_mai[self.components, action])
+        cost_insp = sum(self.gamma*self.c_ins[self.components, action])
+
+        cost_risk = np.sum(self.states_iri[:, -1] * 1.5 * self.c_mai[self.components, -1])
+
+        return cost_action, cost_insp, is_component_active, act_real, action, cost_risk
+
+    def deprecated_get_immediate_cost(self, action):
         act_real = np.zeros(self.num_components, dtype=int)
 
         # Check if any component is in terminal state
@@ -581,8 +586,7 @@ class ThesisEnv(gym.Env):
         :return: -
         """
         # The deretioration rate goes back <shift> positions
-        self.time[comp, self.time_count:] = np.clip(self.time[comp, self.time_count:] - shift,
-                                                    a_min=0, a_max=None)
+        self.time[comp, self.time_count:] = np.clip(self.time[comp, self.time_count:] - shift, a_min=0, a_max=None)
         return
 
     def _infer_state(self, comp, obsState):

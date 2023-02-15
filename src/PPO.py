@@ -13,6 +13,7 @@ from torch.distributions.categorical import Categorical
 from torch.nn import functional as F
 
 from datetime import datetime
+from copy import copy
 
 
 class MindmapRolloutBuffer:
@@ -34,8 +35,10 @@ class MindmapRolloutBuffer:
         self.num_components = num_components
         self.num_states = num_states
         self.num_actions = num_actions
-        # The observation dimension equals to components*(states_num + deterioration rate)
-        self.observation_dimensions = self.num_components * (self.num_states + 1)
+        # The observation dimension equals to components*(states_num)
+        # TODO - IRI is stationary, so state embedding only consists of IRI
+        self.observation_dimensions = self.num_components * (self.num_states)
+        # self.observation_dimensions = self.num_components * (self.num_states + 1)
         self.size = timesteps
         self.gamma = gamma
         self.lam = lam
@@ -76,10 +79,12 @@ class MindmapRolloutBuffer:
         rewards = np.append(self.reward_buffer[path_slice], last_value)
         values = np.append(self.value_buffer[path_slice], last_value)
         deltas = (rewards + self.gamma * np.roll(values, -1) - values)[:-1]
-        self.advantage_buffer[path_slice] = self.discounted_cumulative_sums(
-            deltas, self.gamma * self.lam)
-        self.return_buffer[path_slice] = self.discounted_cumulative_sums(
-            rewards, self.gamma)[:-1]
+        # self.advantage_buffer[path_slice] = self.discounted_cumulative_sums(deltas, self.gamma * self.lam)
+        self.return_buffer[path_slice] = self.discounted_cumulative_sums(rewards, self.gamma)[:-1]
+
+        # TODO - Simplification
+        self.advantage_buffer[path_slice] = self.return_buffer[path_slice] - values[:-1]
+
         self.trajectory_start_index = self.counter
 
     def get(self):
@@ -96,6 +101,11 @@ class MindmapRolloutBuffer:
     def discounted_cumulative_sums(x, discount):
         # Discounted cumulative sums of vectors for computing rewards-to-go and advantage estimates
         return lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
+        # This is equivalent
+        # summ = [x[-1]]
+        # for val in reversed(x[:-1]):
+        #     summ.append(summ[-1] * discount + val)
+        # return summ[::-1]
 
 
 class MindmapActor(nn.Module):
@@ -119,7 +129,9 @@ class MindmapActor(nn.Module):
         self.device = device
 
         # Setup network input and output
-        self.input_dim = (self.num_states + 1) * self.num_components
+        # TODO - Since IRI is stationary, we don't need to add the time in the state embedding
+        self.input_dim = (self.num_states) * self.num_components
+        # self.input_dim = (self.num_states + 1) * self.num_components
         if self.checkpoint_suffix == "actor":
             self.output_dim = self.num_components * self.num_actions
         else:
@@ -266,13 +278,33 @@ class MindmapPPO:
                                     self.lr_decay_step, self.lr_decay_episode_perc, self.n_epochs,
                                     self.critic_arch, self.checkpoint_dir, checkpoint_suffix="crit")
 
-    def sample_action(self, observation):
-        observation_tensor = th.tensor(np.array([observation]), dtype=th.float).to(self.device)
-        logits = self.actor(observation_tensor)
-        logits_softmax = self.actor.transform_with_softmax(logits)
-        action = logits_softmax.sample()
+    def sample_action(self, observation, ep):
+        observation_tensor = th.tensor(np.array(observation), dtype=th.float).to(self.device)
 
-        value = self.critic(observation_tensor)
+        epsilon0 = .0
+        epsilon1 = .0
+        e_perc = 0.3
+        epsilon = np.max([(- epsilon1 + epsilon0)/(e_perc * self.n_epochs)* ep + epsilon1, epsilon0])
+        # print(epsilon)
+        # epsilon = np.max(
+        #     (np.min((epsilon0 * (1 - ep / (.001 * self.n_epochs)) + epsilon1 * (ep / (.001 * self.n_epochs)),
+        #              epsilon1)),
+        #      0))
+
+        logits = self.actor(observation_tensor.float())
+        logits_softmax = self.actor.transform_with_softmax(logits)
+
+        # if epsilon > np.random.random():
+        if True:
+
+            action = logits_softmax.sample()
+
+        else:
+            dummy_dist = th.ones_like(logits_softmax.probs).numpy()/logits_softmax.probs.shape[2]
+            action = th.Tensor([[np.random.choice(range(dummy_dist.shape[2]), replace=True, p=dist) for dist in dummy_dist[0]]])
+            action = action.int()
+
+        value = self.critic(observation_tensor.float())
         log_probs = th.squeeze(logits_softmax.log_prob(action))
         action = th.squeeze(action, dim=0).numpy()
 
@@ -294,16 +326,18 @@ class MindmapPPO:
 
             print(f"Starting training.")
             for episode in range(self.n_epochs):
-                self.run_episode(episode, train_phase="learn")
-                # TODO - log everything that is needed
+                _ = self.run_episode(episode, train_phase="learn")
+                # log everything that is needed
                 if episode % self.checkpoint_interval == 0 or episode == self.n_epochs - 1:
                     self.actor.save_checkpoint(episode)
                     self.critic.save_checkpoint(episode)
                 if self.test_interval:
                     if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
                         print(f"Beginning test runs with current weights.")
+                        test_rewards = []
                         for test_episode in range(self.test_n_epochs):
-                            self.run_episode(test_episode, train_phase="test")
+                            test_rewards.append(self.run_episode(test_episode, train_phase="test"))
+                        self.total_rewards_test.append(np.mean(test_rewards))
 
         elif exec_mode == "test":
             self._load_model_weights(checkpoint_dir, checkpoint_ep)
@@ -327,23 +361,22 @@ class MindmapPPO:
 
         # Iterate over time steps
         cur_timestep = 0
-        total_urgent_comps = 0
+        # total_urgent_comps = 0
         while cur_timestep < self.env.timesteps:
             observation = self.env.states_nn
             # Sample action from actor, and value from critic
-            action, log_prob, value = self.sample_action(self.env.states_nn)
+            action, log_prob, value = self.sample_action(self.env.states_nn, episode)
 
             # Perform a step into the environment
-            from copy import copy
+
             observation_new, reward, done, _ = self.env.step(self.env.actions[copy(action)])
 
             # TODO scalarize the reward function
             reward = reward[0]
-            total_urgent_comps += len(self.env.urgent_comps)
+            # total_urgent_comps += len(self.env.urgent_comps)
 
             # Store the observation, action, reward, predicted value and log probabilities
             self.buffer.store(observation, action, reward, value, log_prob)
-            observation_new = observation
 
             # Check if the episode has ended. If so, proceed to training
             if done or (cur_timestep == self.env.timesteps - 1):
@@ -355,13 +388,14 @@ class MindmapPPO:
 
                 # Check where to append the rewards based on the execution mode
                 if train_phase == "learn":
-                    self.total_rewards.append(np.sum(
-                        self.buffer.reward_buffer) * self.env.norm_factor)
-                    # self.total_actions.append(self.buffer.action_buffer)
+                    pass
+                    # self.total_rewards.append(np.sum(
+                    #     self.buffer.reward_buffer) * self.env.norm_factor)
+                    # # self.total_actions.append(self.buffer.action_buffer)
                 elif train_phase == "test":
-                    self.total_rewards_test.append(np.sum(
-                        self.buffer.reward_buffer) * self.env.norm_factor)
-                    self.total_actions_test.append(self.buffer.action_buffer)
+                    pass
+                    # self.total_rewards_test.append(np.sum(self.buffer.reward_buffer) * self.env.norm_factor)
+                    # self.total_actions_test.append(self.buffer.action_buffer)
                 else:
                     raise ValueError(
                         "Execution mode {train_phase} not relevant. Available options are " \
@@ -371,7 +405,8 @@ class MindmapPPO:
                 print(f"{train_phase} episode: {episode}, Total return:"
                       f" {self.buffer.reward_buffer.sum() * self.env.norm_factor[0]} "
                       f"Actions percentages {dict(zip(act.astype(int), counts*100//(self.env.num_components*self.env.timesteps)))}"
-                      f"Total urgent comps {total_urgent_comps}")
+                      # f"Total urgent comps {total_urgent_comps}"
+                      )
                 break
 
             cur_timestep += 1
@@ -379,6 +414,8 @@ class MindmapPPO:
         # Train the two networks based on the experience of this episode
         if train_phase == "learn":
             self.train()
+
+        return np.sum(self.buffer.reward_buffer) * self.env.norm_factor
 
     def train(self):
         if self.normalize_advantage:
@@ -424,6 +461,11 @@ class MindmapPPO:
                     self.entropy = state_dist.entropy()
                     actor_loss -= self.ent_coef * th.mean(self.entropy)
 
+                if self.vf_coef:
+                    actor_loss += self.vf_coef * critic_loss.detach()
+
+                # print(f"actor: {actor_loss-self.vf_coef * critic_loss.detach()+self.ent_coef * th.mean(self.entropy)}, vf: {self.vf_coef * critic_loss.detach()} entropy: {self.ent_coef * th.mean(self.entropy)}")
+
                 actor_loss.backward()
                 critic_loss.backward()
 
@@ -449,6 +491,12 @@ class MindmapPPO:
         self.actor.scheduler.step()
         self.critic.scheduler.step()
 
+    @staticmethod
+    def _normalize_tensor(arr):
+        mean, std = (th.mean(arr), th.std(arr))
+
+        return (arr - mean) / std
+
     def _normalize_advantages(self):
         self.buffer.counter, self.buffer.trajectory_start_index = 0, 0
         advantage_mean, advantage_std = (np.mean(self.buffer.advantage_buffer),
@@ -467,6 +515,11 @@ class MindmapPPO:
         return policy_loss
 
     def _value_loss(self, returns, values):
+        # returns = self._normalize_tensor(returns)
+        # values = self._normalize_tensor(values)
+        returns *= 1/100
+        values *= 1/100
+
         if self.clip_range_vf is None:
             # No clipping
             values_pred = values
@@ -516,10 +569,13 @@ class MindmapPPO:
 if __name__ == "__main__":
     os.chdir("../")
 
+    # f = open("ppo_results_2_comps.txt", "w+")
+    # for checkpoint in range(0, 20000, 250):
+    #     f.write(f"Checking weights {checkpoint}\n")
     ppo = MindmapPPO()
     ppo.run_episodes(exec_mode="train")
-    # ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20221102221133/",
-    #                  checkpoint_ep=19750)
-    # ppo.run_episodes(exec_mode="continue_training",checkpoint_dir="src/model_weights/20221003215042/",
-    #                  checkpoint_ep=1750)
-    print(f"Mean of test rewards: {np.mean(ppo.total_rewards_test)}")
+    # ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20230214101608/",
+    #                  checkpoint_ep=8500)
+    # ppo.run_episodes(exec_mode="continue_training",checkpoint_dir="src/model_weights/20230214110319/",
+    #                  checkpoint_ep=19999)
+    print(f"Mean of test rewards: {np.mean(ppo.total_rewards_test)}\n")

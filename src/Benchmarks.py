@@ -59,7 +59,7 @@ class Benchmarks:
                     f"replace res: "
                     f"{replace_res}\n")
             list_costs = []
-            for i in range(20):
+            for i in range(100):
                 cost = eval(f"self.{mode}_based_rule(inspect_res, minor_repair_res, "
                             f"major_repair_res, "
                             f"replace_res)")
@@ -308,3 +308,8 @@ if __name__ == "__main__":
     #
     # ppo = MindmapPPO()
     # ppo.run_episodes(exec_mode="train")
+    os.chdir("../")
+    ppo = MindmapPPO()
+    ppo.run_episodes(exec_mode="train")
+    # ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20230213155645/",
+    #                  checkpoint_ep=1000)

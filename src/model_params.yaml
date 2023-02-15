@@ -1,35 +1,35 @@
 env_name: "thesis-env-v1"
 gamma: 0.99
-n_epochs: 15000
+n_epochs: 100000
 seed: 123
 device: "cpu"
 test_interval: 500 # set to null to disable testing
-test_n_epochs: 20
+test_n_epochs: 50
 nn:
   policy: null # Unused for now
   actor_arch: [80, "relu", 80, "relu"]
   critic_arch: [80, "relu", 80, "relu"]
   max_grad_norm: null # Unused for now
   batch_size: 20
-  train_iters: 75
+  train_iters: 35
   optimizer_act: "Adam"
-  lr_act: 1.0e-4
-  lr_act_min: 1.0e-7
+  lr_act: 5.0e-4
+  lr_act_min: 1.0e-6
   optimizer_crit: "Adam"
-  lr_crit: 1.0e-3
-  lr_crit_min: 1.0e-6
+  lr_crit: 5.0e-3
+  lr_crit_min: 1.0e-5
   lr_decay_step: 200
-  lr_decay_episode_perc: 0.9
+  lr_decay_episode_perc: 0.7
   checkpoint_dir: "src/model_weights/"
   checkpoint_interval: 250
 ppo:
   clip_range: 0.2
   clip_range_vf: null
   normalize_advantage: True
-  ent_coef: null
-  vf_coef: null # Unused for now
-  target_kl: 0.01
-  lam: 0.92
+  ent_coef: 0.03
+  vf_coef: 0.2
+  target_kl: 0.015
+  lam: 0.95
 plot: # TODO
   enabled: False
   update_interval: 20000

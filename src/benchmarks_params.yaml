@@ -1,7 +1,7 @@
 env_name: "thesis-env-v1"
 seed: 123
 modes: ["condition"]
-iters: 3
+iters: 10
 save: True
 time: # timestep intervals (both inclusive)
   inspect_interval_min: null

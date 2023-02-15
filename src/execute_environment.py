@@ -14,13 +14,13 @@ import logging
 logging.disable(logging.WARNING)
 os.chdir("../../../..")
 
-episodes = 10
+episodes = 50
 results = []
-
+all_costs = []
 for ep in range(episodes):
 
     # Sample policy check
-    all_costs = []
+
     all_states = []
 
     # Initialize tables for visualization
@@ -30,7 +30,7 @@ for ep in range(episodes):
     states_iri = []
     traffic = []
     episode_cost = np.zeros(3)
-    total_urgent_comps = 0
+    # total_urgent_comps = 0
 
     tau = 0
     import time
@@ -80,26 +80,30 @@ for ep in range(episodes):
         # else:
         #     cur_action = np.ones(env.num_components, dtype=int)*0
 
+        inspect_interval = 1
+        repair_state = 2
+        replace_state = 4
+
         # CBM best setting
         cur_action = np.zeros(env.num_components, dtype=int)
         for comp in range(env.num_components):
             mean_state_iri = np.random.choice(range(env.states_iri.shape[1]), 1,
                                               p=env.states_iri[comp])
             mean_state = np.max([mean_state_iri])
-            if mean_state >= 5:
+            if mean_state >= replace_state:
                 cur_action[comp] = 4
-            elif mean_state >= 2:
+            elif mean_state >= repair_state:
                 cur_action[comp] = 1
             # elif mean_state >= minor_repair_thres:
             #     action[comp] = 1
-            if (i % 1 == 0) and (cur_action[comp] != 4):
+            if (i % inspect_interval == 0) and (cur_action[comp] != 4):
                 cur_action[comp] += 2
 
         states, step_cost, done, metadata = env.step(env.actions[cur_action])
 
         actions.append(cur_action)
         episode_cost += step_cost * env.norm_factor[0]
-        total_urgent_comps += len(env.urgent_comps)
+        # total_urgent_comps += len(env.urgent_comps)
         # states, step_cost, done, _ = env.step(np.array([cur_action] * env.num_components))
         # print(f"Step time is {time.time() - step_time}")
         # if i % 5 == 0:
@@ -123,12 +127,17 @@ for ep in range(episodes):
     # results.append([ep, time.time() - begin_time, env.num_traffic_assignments])
     # print(f"Episode {ep}: {time.time() - begin_time}, {env.num_traffic_assignments}")
 
+    all_costs.append(episode_cost[0])
 
     act, counts = np.unique(np.stack(actions), return_counts=True)
-    print(f"Total reward is: {episode_cost[0]}"
-          f"Actions percentages {dict(zip(act.astype(int), counts*100//(env.num_components*env.timesteps)))}"
-          f"Total urgent comps {total_urgent_comps}")
-    #
+    print(f"Episode {ep}: "
+          f"Total reward is: {episode_cost[0]}"
+          f" Actions percentages {dict(zip(act.astype(int), counts*100//(env.num_components*env.timesteps)))}"
+          # f"Total urgent comps {total_urgent_comps}"
+          )
+
+print(f"Average cost is {np.mean(all_costs)}")
+
     # np.save("actions_env_case4.npy", actions)
     # np.save("costs_env_case4.npy", costs)
     # # np.save("states_cci_env.npy", states_cci)
