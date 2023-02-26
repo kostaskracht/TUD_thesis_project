@@ -8,3 +8,4 @@ scipy
 openmatrix
 cvxpy
 tqdm
+tensorboard

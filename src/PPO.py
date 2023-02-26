@@ -13,6 +13,7 @@ from scipy.signal import lfilter
 import torch.optim as optim
 from torch.distributions.categorical import Categorical
 from torch.nn import functional as F
+from torch.utils.tensorboard import SummaryWriter
 
 from datetime import datetime
 from copy import copy
@@ -78,7 +79,7 @@ class MindmapRolloutBuffer:
     def finish_trajectory(self, last_value=0, w_rewards=None):
         # Finish the trajectory by computing advantage estimates and rewards-to-go
         path_slice = slice(self.trajectory_start_index, self.counter)
-        rewards = np.append(self.reward_buffer[path_slice], [[last_value]*self.num_objectives], axis=0)
+        rewards = np.append(self.reward_buffer[path_slice], [[last_value] * self.num_objectives], axis=0)
         rewards_dot = np.einsum('ij,j->i', rewards, w_rewards)
 
         values = np.append(self.value_buffer[path_slice], last_value)
@@ -226,6 +227,7 @@ class MindmapCritic(MindmapActor):
                                             architecture,
                                             checkpoint_dir, checkpoint_suffix)
 
+
 class MindmapPPO:
     """
     The main class containing the MindmapPPO algorithm
@@ -281,15 +283,28 @@ class MindmapPPO:
                                     self.lr_decay_step, self.lr_decay_episode_perc, self.n_epochs,
                                     self.critic_arch, self.checkpoint_dir, checkpoint_suffix="crit")
 
+        # Initialize tensorboard logger
+        self.writer = SummaryWriter(f"runs/{self.timestamp}")
+        self.log = {"train_returns": "Returns/Train returns over epochs",
+                    "test_returns": "Returns/Test returns over epochs",
+                    "lr_actor": "Actor/Actor Learning Rate over epochs",
+                    "lr_critic": "Critic/Critic Learning Rate over epochs",
+                    "actor_loss": "Actor/Actor Loss over epochs",
+                    "critic_loss": "Critic/Critic Loss over epochs"}
+        dict_to_log = {key: str(value) for key, value in self.param_dict.items()}
+        self.writer.add_hparams(dict_to_log, {})
+
+        print(f"Current execution timestamp is {self.timestamp}")
+
     def sample_action(self, observation, ep):
         observation_tensor = th.tensor(np.array(observation), dtype=th.float).to(self.device)
 
-        epsilon = 0
+        epsilon = 10
         if self.use_exploration_rate:
             epsilon0 = .0
             epsilon1 = .0
             e_perc = 0.3
-            epsilon = np.max([(- epsilon1 + epsilon0)/(e_perc * self.n_epochs)* ep + epsilon1, epsilon0])
+            epsilon = np.max([(- epsilon1 + epsilon0) / (e_perc * self.n_epochs) * ep + epsilon1, epsilon0])
 
         logits = self.actor(observation_tensor.float())
         logits_softmax = self.actor.transform_with_softmax(logits)
@@ -298,8 +313,9 @@ class MindmapPPO:
             action = logits_softmax.sample()
 
         else:
-            dummy_dist = th.ones_like(logits_softmax.probs).numpy()/logits_softmax.probs.shape[2]
-            action = th.Tensor([[np.random.choice(range(dummy_dist.shape[2]), replace=True, p=dist) for dist in dummy_dist[0]]])
+            dummy_dist = th.ones_like(logits_softmax.probs).numpy() / logits_softmax.probs.shape[2]
+            action = th.Tensor(
+                [[np.random.choice(range(dummy_dist.shape[2]), replace=True, p=dist) for dist in dummy_dist[0]]])
             action = action.int()
 
         value = self.critic(observation_tensor.float())
@@ -322,20 +338,22 @@ class MindmapPPO:
 
             print(f"Starting training.")
             for episode in range(self.n_epochs):
-                _ = self.run_episode(episode, train_phase="learn")
+                returns = self.run_episode(episode, train_phase="learn")
                 # log everything that is needed
                 if episode % self.checkpoint_interval == 0 or episode == self.n_epochs - 1:
                     self.actor.save_checkpoint(episode)
                     self.critic.save_checkpoint(episode)
+
+                self.log_after_train_episode(episode, returns)
+
                 if self.test_interval:
                     if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
                         print(f"Beginning test runs with current weights.")
                         test_rewards = []
                         for test_episode in range(self.test_n_epochs):
                             test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
-                        if exec_mode != "test":
-                            self.total_rewards_test.append(np.mean(test_rewards))
-                        # self.total_rewards_test.append(np.mean(test_rewards))
+                        self.total_rewards_test.append(np.mean(test_rewards))
+                        self.log_after_test_episode(np.mean(test_rewards), episode)
 
         elif exec_mode == "test":
             self._load_model_weights(checkpoint_dir, checkpoint_ep)
@@ -390,7 +408,8 @@ class MindmapPPO:
                     # # self.total_actions.append(self.buffer.action_buffer)
                 elif train_phase == "test":
                     pass
-                    self.total_rewards_test.append(np.einsum("ij,j->ij",self.buffer.reward_buffer, self.env.norm_factor))
+                    self.total_rewards_test.append(
+                        np.einsum("ij,j->ij", self.buffer.reward_buffer, self.env.norm_factor))
                     self.total_actions_test.append(self.buffer.action_buffer)
                 else:
                     raise ValueError(
@@ -399,7 +418,7 @@ class MindmapPPO:
                 act, counts = np.unique(self.buffer.action_buffer, return_counts=True)
                 print(f"{train_phase} episode: {episode}, Total return:"
                       f" {np.sum(self.buffer.reward_buffer, axis=0) * self.env.norm_factor} "
-                      f"Actions percentages {dict(zip(act.astype(int), counts*100//(self.env.num_components*self.env.timesteps)))}"
+                      f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.env.timesteps)))}"
                       # f"Total urgent comps {total_urgent_comps}"
                       )
                 break
@@ -408,14 +427,20 @@ class MindmapPPO:
 
         # Train the two networks based on the experience of this episode
         if train_phase == "learn":
-            self.train()
+            actor_loss, critic_loss = self.train()
+
+            self.log_after_training(episode, actor_loss, critic_loss)
 
         # return np.sum(self.buffer.reward_buffer) * self.env.norm_factor
         return np.sum(np.einsum('ij,j->i', self.buffer.reward_buffer, self.env.w_rewards * self.env.norm_factor))
 
     def train(self):
         if self.normalize_advantage:
+            self._normalize_array(self.buffer.advantage_buffer)
             self._normalize_advantages()
+
+        if self.normailize_returns:
+            self._normalize_array(self.buffer.return_buffer)
 
         # Get the complete buffer values
         (observation_buffer_init,
@@ -449,18 +474,19 @@ class MindmapPPO:
                 state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
                 new_probs = state_dist.log_prob(action_buffer).sum(dim=1)
 
-                actor_loss = self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)
+                actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
                 critic_loss = self._value_loss(return_buffer, critic_values)
 
                 # Add the entropy coefficient to the actor loss
                 if self.ent_coef:
                     self.entropy = state_dist.entropy()
-                    actor_loss -= self.ent_coef * th.mean(self.entropy)
+                    actor_loss["entropy_loss"] = -self.ent_coef * th.mean(self.entropy)
 
                 if self.vf_coef:
-                    actor_loss += self.vf_coef * critic_loss.detach()
+                    actor_loss["value_loss"] = self.vf_coef * critic_loss.detach()
 
-                actor_loss.backward()
+                actor_loss["total_loss"] = sum(actor_loss.values())
+                actor_loss["total_loss"].backward()
                 critic_loss.backward()
 
                 self.actor.optimizer.step()
@@ -485,6 +511,8 @@ class MindmapPPO:
         self.actor.scheduler.step()
         self.critic.scheduler.step()
 
+        return actor_loss, critic_loss
+
     @staticmethod
     def _normalize_tensor(arr):
         mean, std = (th.mean(arr), th.std(arr))
@@ -498,6 +526,12 @@ class MindmapPPO:
 
         self.buffer.advantage_buffer = (self.buffer.advantage_buffer - advantage_mean) / advantage_std
 
+    @staticmethod
+    def _normalize_array(arr):
+        # self.buffer.counter, self.buffer.trajectory_start_index = 0, 0
+        arr_mean, arr_std = (np.mean(arr), np.std(arr))
+
+        return (arr - arr_mean) / arr_std
     def _policy_loss(self, old_pi, new_pi, advantages):
         # ratio between old and new policy, should be one at the first iteration
         ratio = th.exp(new_pi - old_pi)
@@ -553,9 +587,44 @@ class MindmapPPO:
             else:
                 setattr(self, k, v)
 
+    def log_after_train_episode(self, episode, returns):
+        if self.log_enabled and episode % self.log_interval == 0:
+            self.writer.add_scalar(self.log["train_returns"],
+                                   returns,
+                                   # {"Lifecycle cost": returns[0],
+                                   #  "Lifecycle carbon emissions": returns[1],
+                                   #  "Total travel time": returns[2]},
+                                   episode // self.log_interval)
+
+            self.writer.add_scalar(self.log["lr_actor"],
+                                   self.actor.optimizer.param_groups[0]["lr"],
+                                   episode // self.log_interval)
+
+            self.writer.add_scalar(self.log["lr_critic"],
+                                   self.critic.optimizer.param_groups[0]["lr"],
+                                   episode // self.log_interval)
+
+    def log_after_test_episode(self, returns, episode):
+        if self.log_enabled and episode % self.log_interval == 0:
+            self.writer.add_scalar(self.log["test_returns"],
+                                   returns,
+                                   # {"Lifecycle cost": np.mean(test_rewards)[0],
+                                   #  "Lifecycle carbon emissions": np.mean(test_rewards)[1],
+                                   #  "Total travel time": np.mean(test_rewards)[2]},
+                                   episode // self.log_interval)
+
+    def log_after_training(self, episode, actor_loss, critic_loss):
+        if self.log_enabled and episode % self.log_interval == 0:
+            self.writer.add_scalars(self.log["actor_loss"],
+                                    {key: value.item() for key, value in actor_loss.items()},
+                                    episode // self.log_interval)
+            self.writer.add_scalar(self.log["critic_loss"],
+                                   critic_loss,
+                                   episode // self.log_interval)
 
 if __name__ == "__main__":
     import time
+
     start = time.time()
     os.chdir("../")
 

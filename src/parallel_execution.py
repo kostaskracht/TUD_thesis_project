@@ -178,14 +178,14 @@ class MultiRunner:
             If n_steps <= 0, stops at the end of an episode and optionally trims the transition_buffer.
             Returns a dictionary containing the transition_buffer and episode statstics. """
         n_steps = n_steps // len(self.runners)
-        transition_buffer_dicts = [{} for _ in self.runners]
-        manager = multiprocessing.Manager()
-        transition_buffer_dicts = manager.dict()
 
         if self.fork_on == "thread":
+            transition_buffer_dicts = [{} for _ in self.runners]
             self.fork_thread(target=Runner.run, common_args=(n_steps, blueprint), specific_args=(transition_buffer_dicts,))
             # self.fork(target=Runner.run, common_args=(n_steps, transition_buffer))
         elif self.fork_on == "process":
+            manager = multiprocessing.Manager()
+            transition_buffer_dicts = manager.dict()
             # self.fork_process(target=Runner.run, common_args=(n_steps, blueprint),
             #                   specific_args=(transition_buffer_dicts,))
             # self.fork_process(target=Runner.run_test, common_args=(5, transition_buffer_dicts,))
@@ -194,7 +194,6 @@ class MultiRunner:
         else:
             raise TypeError("Wrong fork_on setting. Available options are 'thread' and 'process'")
 
-        print(transition_buffer_dicts)
         return transition_buffer_dicts
 
 
@@ -264,8 +263,13 @@ class MindmapPPOMultithread(MindmapPPO):
                     self.actor.save_checkpoint(episode)
                     self.critic.save_checkpoint(episode)
 
+                returns = np.sum(np.einsum('ij,j->i', buff.reward_buffer, self.env.w_rewards * self.env.norm_factor))
+                self.log_after_train_episode(episode, returns)
+
                 # Train the two networks based on the experience of this episode
-                self.train()
+                actor_loss, critic_loss = self.train()
+
+                self.log_after_training(episode, actor_loss, critic_loss)
 
                 if self.test_interval:
                     if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
@@ -275,7 +279,7 @@ class MindmapPPOMultithread(MindmapPPO):
                             test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
                         if exec_mode != "test":
                             self.total_rewards_test.append(np.mean(test_rewards))
-
+                            self.log_after_test_episode(np.mean(test_rewards), episode)
 
         elif exec_mode == "test":
             self._load_model_weights(checkpoint_dir, checkpoint_ep)

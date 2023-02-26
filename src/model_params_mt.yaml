@@ -1,48 +1,49 @@
 env_name: "thesis-env-v1"
 gamma: 0.99
 multirunner: True
-fork_on: "process" # "thread" or "process"
+fork_on: "thread" # "thread" or "process"
 processes: 4
 n_epochs: 25000
 seed: 123
 device: "cpu"
 test_interval: 500 # set to null to disable testing
 test_n_epochs: 50
-nn:
-  policy: null # Unused for now
-  actor_arch: [80, "relu", 80, "relu"]
-  critic_arch: [80, "relu", 80, "relu"]
-  max_grad_norm: null # Unused for now
-  batch_size: 20
-  train_iters: 50
-  optimizer_act: "Adam"
-  lr_act: 1.0e-4
-  lr_act_min: 5.0e-6
-  optimizer_crit: "Adam"
-  lr_crit: 1.0e-3
-  lr_crit_min: 5.0e-5
-  lr_decay_step: 200
-  lr_decay_episode_perc: 0.8
-  checkpoint_dir: "src/model_weights/"
-  checkpoint_interval: 250
-ppo:
-  clip_range: 0.2
-  clip_range_vf: null
-  normalize_advantage: True
-  ent_coef: 0.07
-  vf_coef: 0.2
-  target_kl: 0.02
-  lam: 0.95
-  use_exploration_rate: None
-plot: # TODO
-  enabled: False
-  update_interval: 20000
-  reset_heat_map_every_update: True
-  # Configure smoothing per plot
-  smooth:
-    # Set to True to enable plot smoothing in general
-    enabled: False
-    # Plots to enable
-    episode_rewards: True
-    total_rewards: True
-    n: 11
+# nn
+policy: null # Unused for now
+actor_arch: [80, "relu", 80, "relu"]
+critic_arch: [80, "relu", 80, "relu"]
+max_grad_norm: null # Unused for now
+batch_size: 20
+train_iters: 50
+optimizer_act: "Adam"
+lr_act: 1.0e-4
+lr_act_min: 5.0e-6
+optimizer_crit: "Adam"
+lr_crit: 1.0e-3
+lr_crit_min: 5.0e-5
+lr_decay_step: 200
+lr_decay_episode_perc: 0.8
+checkpoint_dir: "src/model_weights/"
+checkpoint_interval: 250
+# ppo
+clip_range: 0.2
+clip_range_vf: null
+normalize_advantage: True
+normailize_returns: True
+ent_coef: 0.07
+vf_coef: 0.2
+target_kl: 0.02
+lam: 0.95
+use_exploration_rate: False
+#plot
+enabled: False
+update_interval: 500
+# smooth
+smooth_enabled: False
+smooth_n: 11
+# Plots to enable
+episode_rewards: True
+total_rewards: True
+# log
+log_enabled: True
+log_interval: 200

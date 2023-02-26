@@ -50,7 +50,7 @@ edges_filename: "data/extracted_data/sioux_falls/edges.csv"
 capacity_filename: "data/extracted_data/sioux_falls/capacity.csv"
 transport_types: [0.78, 0.13, 0.05, 0.03, 0.01] # assume cars, vans, trucks, motorcycles, buses
 carbon_foot_by_type: [143.17, 246.2, 649.73, 116.8, 1294.13] # assume cars, vans, trucks,  motorcycles, buses
-plot_road_network: True
+plot_road_network: False
 plot_states: False
 limit_budget: False
 closure_perc: 0.5 # percentage of road closed when a maintenance work is carried away

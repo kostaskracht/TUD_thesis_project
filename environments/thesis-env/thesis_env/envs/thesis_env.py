@@ -119,7 +119,7 @@ class ThesisEnv(gym.Env):
             self.road_network = road_network_tmp
 
         for key, link in self.road_network.linkSet.items():
-            self.road_network.linkSet[key].beta = 2
+            # self.road_network.linkSet[key].beta = 2
             self.road_network.linkSet[key].max_capacity *= 0.25
             self.road_network.linkSet[key].capacity *= 0.25
             self.road_network.linkSet[key].flow_init = 0
@@ -258,7 +258,7 @@ class ThesisEnv(gym.Env):
 
         # Calculate the traffic flows in the network per month
         # comp traffic can be either (components x months)
-        total_travel_time, comp_traffic = self._traffic_assignment(action, is_comp_active)
+        # total_travel_time, comp_traffic = self._traffic_assignment(action, is_comp_active)
 
         # Visualize the road network
         if self.plot_road_network:
@@ -291,10 +291,10 @@ class ThesisEnv(gym.Env):
 
 
         # # Calculate the total carbon footprint for this step
-        step_cost[1] = - (self._compute_carbon_footprint(comp_traffic) - self.carbon_footprint_init)
+        # step_cost[1] = - (self._compute_carbon_footprint(comp_traffic) - self.carbon_footprint_init)
 
         # Calculate the total travel time
-        step_cost[2] = - (np.sum(total_travel_time) - self.TSTT_init*12)
+        # step_cost[2] = - (np.sum(total_travel_time) - self.TSTT_init*12)
 
         # Updating the ongoing actions
         self.act_ongoing = act_ongoing_tmp
@@ -327,7 +327,7 @@ class ThesisEnv(gym.Env):
                                                                     {"actions": action,
                                                                      "costs": step_cost,
                                                                      "states_iri": self.states_iri,
-                                                                     "traffic": comp_traffic,
+                                                                     # "traffic": comp_traffic,
                                                                      "urgent_components": self.urgent_comps}
 
     # def reset(self):
