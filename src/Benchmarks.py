@@ -257,7 +257,7 @@ class Benchmarks:
             _, step_cost, _, _ = self.env.step(self.env.actions[action])
             episode_cost += - step_cost
 
-        return (episode_cost * self.env.norm_factor)[0]
+        return np.dot(episode_cost, self.env.w_rewards * self.env.norm_factor)
 
     @staticmethod
     def calculate_min(costs, num_iter=0, mode=""):
@@ -309,7 +309,7 @@ if __name__ == "__main__":
     # ppo = MindmapPPO()
     # ppo.run_episodes(exec_mode="train")
     os.chdir("../")
-    ppo = MindmapPPO()
-    ppo.run_episodes(exec_mode="train")
+    # ppo = MindmapPPO()
+    # ppo.run_episodes(exec_mode="train")
     # ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20230213155645/",
     #                  checkpoint_ep=1000)

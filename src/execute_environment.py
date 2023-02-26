@@ -3,6 +3,7 @@ import os
 import thesis_env
 import gym
 from datetime import datetime
+import time
 from tqdm import tqdm
 import yaml
 
@@ -12,11 +13,12 @@ env = gym.make("thesis-env-v1", quiet=True)
 import logging
 
 logging.disable(logging.WARNING)
-os.chdir("../../../..")
+# os.chdir("../../../..")
 
-episodes = 50
+episodes = 1
 results = []
 all_costs = []
+
 for ep in range(episodes):
 
     # Sample policy check
@@ -30,6 +32,7 @@ for ep in range(episodes):
     states_iri = []
     traffic = []
     episode_cost = np.zeros(3)
+
     # total_urgent_comps = 0
 
     tau = 0
@@ -84,20 +87,25 @@ for ep in range(episodes):
         repair_state = 2
         replace_state = 4
 
+        # Random actions
+        cur_action = np.random.choice(np.arange(5), size=env.num_components, replace=True,
+                                      # p=[0.8] + [0.2/(env.num_actions-1)]*(env.num_actions-1)
+                                      )
+
         # CBM best setting
-        cur_action = np.zeros(env.num_components, dtype=int)
-        for comp in range(env.num_components):
-            mean_state_iri = np.random.choice(range(env.states_iri.shape[1]), 1,
-                                              p=env.states_iri[comp])
-            mean_state = np.max([mean_state_iri])
-            if mean_state >= replace_state:
-                cur_action[comp] = 4
-            elif mean_state >= repair_state:
-                cur_action[comp] = 1
-            # elif mean_state >= minor_repair_thres:
-            #     action[comp] = 1
-            if (i % inspect_interval == 0) and (cur_action[comp] != 4):
-                cur_action[comp] += 2
+        # cur_action = np.zeros(env.num_components, dtype=int)
+        # for comp in range(env.num_components):
+        #     mean_state_iri = np.random.choice(range(env.states_iri.shape[1]), 1,
+        #                                       p=env.states_iri[comp])
+        #     mean_state = np.max([mean_state_iri])
+        #     if mean_state >= replace_state:
+        #         cur_action[comp] = 4
+        #     elif mean_state >= repair_state:
+        #         cur_action[comp] = 1
+        #     # elif mean_state >= minor_repair_thres:
+        #     #     action[comp] = 1
+        #     if (i % inspect_interval == 0) and (cur_action[comp] != 4):
+        #         cur_action[comp] += 2
 
         states, step_cost, done, metadata = env.step(env.actions[cur_action])
 
@@ -124,8 +132,8 @@ for ep in range(episodes):
         # # states_cci.append(metadata["states_cci"])
         # states_iri.append(metadata["states_iri"])
         # traffic.append(metadata["traffic"])
-    # results.append([ep, time.time() - begin_time, env.num_traffic_assignments])
-    # print(f"Episode {ep}: {time.time() - begin_time}, {env.num_traffic_assignments}")
+    results.append([ep, time.time() - begin_time, env.num_traffic_assignments])
+    print(f"Episode {ep}: {time.time() - begin_time}, {env.num_traffic_assignments}")
 
     all_costs.append(episode_cost[0])
 
@@ -150,3 +158,4 @@ print(f"Average cost is {np.mean(all_costs)}")
 # np.savetxt("timing_beta_4.csv", results, delimiter=",")
 # np.savetxt("timing_beta_3.csv", results, delimiter=",")
 # np.savetxt("timing_beta_2.csv", results, delimiter=",")
+np.savetxt("new_timing_comp8_beta3.csv", results, delimiter=",")
