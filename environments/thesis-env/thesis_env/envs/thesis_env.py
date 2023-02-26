@@ -80,6 +80,11 @@ class ThesisEnv(gym.Env):
         # for link in self.road_network.linkSet:
         #     self.road_network.linkSet[link].capacity = self.road_network.linkSet[link].capacity
 
+        # Initialize buffer to keep traffic assignment solutions
+        self.traffic_assignment_solutions = {}
+
+        self.num_traffic_assignments = 0
+
         # If we only kept some of the network components, remove the rest
         if self.components_to_keep:
             road_network_tmp = deepcopy(self.road_network)
@@ -115,21 +120,27 @@ class ThesisEnv(gym.Env):
 
         for key, link in self.road_network.linkSet.items():
             self.road_network.linkSet[key].beta = 2
+            self.road_network.linkSet[key].max_capacity *= 0.25
+            self.road_network.linkSet[key].capacity *= 0.25
+            self.road_network.linkSet[key].flow_init = 0
+            self.road_network.linkSet[key].max_capacity_init = self.road_network.linkSet[key].max_capacity
 
-        _ = assignment_loop(
-            network=self.road_network, algorithm="FW",
-            systemOptimal=False,
-            costFunction=BPRcostFunction,
-            accuracy=0.02, maxIter=200, maxTime=6000000, verbose=False)
+        # Reset the environment
+        self.reset()
+        self.time_count = 0
+
+        self.TSTT_init, flows_init = self._execute_traffic_assignment(np.zeros_like(self.components, dtype=bool))
+
+        self.carbon_footprint_init = self._compute_carbon_footprint(np.repeat([flows_init], repeats=12, axis=0).T)
+
+        # self.TSTT_init = assignment_loop(
+        #     network=self.road_network, algorithm="FW",
+        #     systemOptimal=False,
+        #     costFunction=BPRcostFunction,
+        #     accuracy=0.02, maxIter=200, maxTime=6000000, verbose=False)
 
         for key, link in self.road_network.linkSet.items():
             self.road_network.linkSet[key].flow_init = self.road_network.linkSet[key].flow
-
-
-        # Initialize buffer to keep traffic assignment solutions
-        self.traffic_assignment_solutions = {}
-
-        self.num_traffic_assignments = 0
 
         # Assign normalizing factors if they are not set
         if not self.norm_factor:
@@ -144,10 +155,6 @@ class ThesisEnv(gym.Env):
                 self.components]) * 10 * 12
         else:
             self.norm_factor = np.asarray(self.norm_factor)
-
-        # Reset the environment
-        self.reset()
-        self.time_count = 0
 
     def step(self, action: np.ndarray):
         """
@@ -251,7 +258,7 @@ class ThesisEnv(gym.Env):
 
         # Calculate the traffic flows in the network per month
         # comp traffic can be either (components x months)
-        # total_travel_time, comp_traffic = self._traffic_assignment(action, is_comp_active)
+        total_travel_time, comp_traffic = self._traffic_assignment(action, is_comp_active)
 
         # Visualize the road network
         if self.plot_road_network:
@@ -283,11 +290,11 @@ class ThesisEnv(gym.Env):
             #                                      f"Month {'January'}", min_max=(0, 9))
 
 
-        # Calculate the total carbon footprint for this step
-        # step_cost[1] = self._compute_carbon_footprint(comp_traffic)
+        # # Calculate the total carbon footprint for this step
+        step_cost[1] = - (self._compute_carbon_footprint(comp_traffic) - self.carbon_footprint_init)
 
         # Calculate the total travel time
-        # step_cost[2] = np.sum(total_travel_time)
+        step_cost[2] = - (np.sum(total_travel_time) - self.TSTT_init*12)
 
         # Updating the ongoing actions
         self.act_ongoing = act_ongoing_tmp
@@ -316,11 +323,12 @@ class ThesisEnv(gym.Env):
         if self.plot_states:
             self._visualize_states(0, action, save=True)
 
-        return self.states_nn, step_cost / self.norm_factor, done, {}
-        # {"actions": action,
-        #                                                              "costs": step_cost,
-        #                                                              "states_iri": self.states_iri,
-        #                                                              "traffic": comp_traffic[:, 0]}
+        return self.states_nn, step_cost / self.norm_factor, done, \
+                                                                    {"actions": action,
+                                                                     "costs": step_cost,
+                                                                     "states_iri": self.states_iri,
+                                                                     "traffic": comp_traffic,
+                                                                     "urgent_components": self.urgent_comps}
 
     # def reset(self):
     def reset(self, *, seed=None, options=None, ):
@@ -405,7 +413,7 @@ class ThesisEnv(gym.Env):
                     file_values = np.load(value)
                 setattr(self, key.split(pattern)[0], file_values)
 
-    def get_immediate_cost(self, action):
+    def get_immediate_cost_risk(self, action):
         act_real = action
         is_component_active = np.ones(self.num_components, dtype=bool)
         cost_action = sum(self.c_mai[self.components, action])
@@ -415,7 +423,7 @@ class ThesisEnv(gym.Env):
 
         return cost_action, cost_insp, is_component_active, act_real, action, cost_risk
 
-    def deprecated_get_immediate_cost(self, action):
+    def get_immediate_cost(self, action):
         act_real = np.zeros(self.num_components, dtype=int)
 
         # Check if any component is in terminal state
@@ -488,7 +496,17 @@ class ThesisEnv(gym.Env):
             cost_ins = self.gamma*sum(self.c_ins[self.components, action]) + \
                        self.gamma * sum(self.c_ins[self.urgent_comps, action[self.urgent_comps]]) * 0.5
 
-        return cost_action, cost_ins, is_component_active, act_real, action
+        # Add cost for risk
+        risk = 0 # No risk is included in this implementation
+
+        # Add crew cost. Currently, the crew cost is the 50% of the mean action cost
+        cost_action_crew = np.sum(self.c_mai_crew[np.unique(action)])
+        cost_ins_crew = np.sum(self.c_ins_crew[np.unique(action)])
+
+        cost_action += cost_action_crew
+        cost_ins += cost_ins_crew
+
+        return cost_action, cost_ins, is_component_active, act_real, action, risk
 
     def compute_action_cost(self):
         """
@@ -697,11 +715,13 @@ class ThesisEnv(gym.Env):
             #     key].max_capacity
 
             if link.comp_idx in ongoing_actions:
-                self.road_network.linkSet[key].capacity = self.road_network.linkSet[
-                    key].max_capacity * self.closure_perc
+                self.road_network.linkSet[key].capacity = self.road_network.linkSet[key].max_capacity_init * \
+                                                          self.closure_perc
             else:
                 self.road_network.linkSet[key].capacity = self.road_network.linkSet[
-                    key].max_capacity
+                    key].max_capacity_init
+
+            self.road_network.linkSet[key].max_capacity = self.road_network.linkSet[key].capacity
 
             # self.road_network.linkSet[key].flow = self.road_network.linkSet[key].capacity / 2
             # self.road_network.linkSet[key].flow = 0
