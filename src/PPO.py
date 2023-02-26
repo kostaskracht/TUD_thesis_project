@@ -436,11 +436,10 @@ class MindmapPPO:
 
     def train(self):
         if self.normalize_advantage:
-            self._normalize_array(self.buffer.advantage_buffer)
-            self._normalize_advantages()
+            self.buffer.advantage_buffer = self._normalize_array(self.buffer.advantage_buffer)
 
-        if self.normailize_returns:
-            self._normalize_array(self.buffer.return_buffer)
+        if self.normalize_returns:
+            self.buffer.return_buffer = self._normalize_array(self.buffer.return_buffer)
 
         # Get the complete buffer values
         (observation_buffer_init,
@@ -594,15 +593,15 @@ class MindmapPPO:
                                    # {"Lifecycle cost": returns[0],
                                    #  "Lifecycle carbon emissions": returns[1],
                                    #  "Total travel time": returns[2]},
-                                   episode // self.log_interval)
+                                   episode)
 
             self.writer.add_scalar(self.log["lr_actor"],
                                    self.actor.optimizer.param_groups[0]["lr"],
-                                   episode // self.log_interval)
+                                   episode)
 
             self.writer.add_scalar(self.log["lr_critic"],
                                    self.critic.optimizer.param_groups[0]["lr"],
-                                   episode // self.log_interval)
+                                   episode)
 
     def log_after_test_episode(self, returns, episode):
         if self.log_enabled and episode % self.log_interval == 0:
@@ -611,16 +610,16 @@ class MindmapPPO:
                                    # {"Lifecycle cost": np.mean(test_rewards)[0],
                                    #  "Lifecycle carbon emissions": np.mean(test_rewards)[1],
                                    #  "Total travel time": np.mean(test_rewards)[2]},
-                                   episode // self.log_interval)
+                                   episode)
 
     def log_after_training(self, episode, actor_loss, critic_loss):
         if self.log_enabled and episode % self.log_interval == 0:
             self.writer.add_scalars(self.log["actor_loss"],
                                     {key: value.item() for key, value in actor_loss.items()},
-                                    episode // self.log_interval)
+                                    episode)
             self.writer.add_scalar(self.log["critic_loss"],
                                    critic_loss,
-                                   episode // self.log_interval)
+                                   episode)
 
 if __name__ == "__main__":
     import time

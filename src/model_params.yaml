@@ -28,7 +28,7 @@ checkpoint_interval: 250
 clip_range: 0.2
 clip_range_vf: null
 normalize_advantage: True
-normailize_returns: True
+normalize_returns: True
 ent_coef: 0.07
 vf_coef: 0.2
 target_kl: 0.015
