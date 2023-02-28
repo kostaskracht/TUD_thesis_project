@@ -6,7 +6,7 @@ processes: 4
 n_epochs: 25000
 seed: 123
 device: "cpu"
-test_interval: 500 # set to null to disable testing
+test_interval: 200 # set to null to disable testing
 test_n_epochs: 50
 # nn
 policy: null # Unused for now
@@ -30,8 +30,8 @@ clip_range: 0.2
 clip_range_vf: null
 normalize_advantage: True
 normalize_returns: False
-ent_coef: 0.04
-vf_coef: 0.001
+ent_coef: 0.01
+vf_coef: null #0.001
 target_kl: 0.02
 lam: 0.95
 use_exploration_rate: False

@@ -236,7 +236,7 @@ class MindmapPPO:
     def __init__(self, param_file="src/model_params.yaml", quiet=False):
 
         # Get timestamp of the execution
-        self.timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        self.timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
         self.output_dir = f"outputs/model_outputs/{self.timestamp}/"
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
@@ -370,6 +370,8 @@ class MindmapPPO:
         np.save(self.output_dir + "rewards.npy", self.total_rewards)
         np.save(self.output_dir + "actions_test.npy", self.total_actions_test)
         np.save(self.output_dir + "rewards_test.npy", self.total_rewards_test)
+
+        self.clear_bad_checkpoints()
 
     def run_episode(self, episode, train_phase="learn"):
         # Initialize buffer
@@ -621,6 +623,24 @@ class MindmapPPO:
                                    critic_loss,
                                    episode)
 
+    def clear_bad_checkpoints(self):
+        best_episode = np.clip(np.argmax(np.asarray(self.total_rewards_test))*self.test_interval,
+                               a_min=None, a_max=self.n_epochs-1)
+
+        checkpoint_episodes = np.arange(0, self.n_epochs, self.checkpoint_interval)
+        checkpoint_episodes = np.append(checkpoint_episodes, self.n_epochs - 1)
+
+        episode_to_keep1 = checkpoint_episodes[(np.abs(checkpoint_episodes - best_episode)).argmin()]
+        episode_to_keep2 = self.n_epochs - 1
+
+        # Remove all other episode weights
+        for filee in os.listdir(self.actor.checkpoint_folder):
+            if ("ep" + str(episode_to_keep1) + "_" not in filee) and ("ep" + str(episode_to_keep2) + "_" not in filee):
+                os.remove(self.actor.checkpoint_folder + filee)
+
+        print(f"Best result: {np.max(self.total_rewards_test)}")
+        print(f"Value of best network weights: {best_episode:.0f}")
+
 if __name__ == "__main__":
     import time
 
@@ -636,5 +656,5 @@ if __name__ == "__main__":
     #                  checkpoint_ep=18500)
     # ppo.run_episodes(exec_mode="continue_training",checkpoint_dir="src/model_weights/20230214110319/",
     #                  checkpoint_ep=19999)
-    print(f"Mean of test rewards: {np.mean(ppo.total_rewards_test)}\n")
+    # print(f"Mean of test rewards: {np.mean(ppo.total_rewards_test)}\n")
     print(f"Total time {time.time() - start}")
