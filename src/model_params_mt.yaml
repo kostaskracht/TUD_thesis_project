@@ -31,7 +31,7 @@ clip_range_vf: null
 normalize_advantage: True
 normalize_returns: False
 ent_coef: 0.01
-vf_coef: null #0.001
+vf_coef: 0.2
 target_kl: 0.02
 lam: 0.95
 use_exploration_rate: False
