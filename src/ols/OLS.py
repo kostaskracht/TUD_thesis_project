@@ -3,6 +3,7 @@
 from itertools import combinations
 from typing import List, Optional
 
+import seaborn as sns
 import cvxpy as cp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,10 +11,16 @@ import numpy as np
 # import wandb as wb
 from utils import random_weights, hypervolume, policy_evaluation_mo
 
-from q_learning_cartpole import Qtable, Q_learning
+# from q_learning_cartpole import Qtable, Q_learning
 import gym
-import cartpole_envi
+# import cartpole_envi
+import torch as th
 
+import sys
+sys.path.append('../')
+from parallel_execution import MindmapPPOMultithread
+
+import time
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
@@ -382,7 +389,7 @@ class OLS:
                 "axes.titlesize": 12,
                 "axes.labelsize": 15,
                 "lines.markersize": 12,
-                "legend.fontsize": 14,
+                "legend.fontsize": 8,
             },
         )
         colors = ["#E6194B", "#5CB5FF"]
@@ -422,14 +429,14 @@ class OLS:
         )
         # plt.ylim(max(y), min(y))
         # plt.scatter(x_css, y_css, label="CCS", marker="x", color="black")
-        plt.legend(loc="lower left", fancybox=True, framealpha=0.5)
+        plt.legend(loc="best", fancybox=True, framealpha=0.5)
         plt.xlabel("$\psi^{\pi}_{1}$ (Time alive)")
         plt.ylabel("$\psi^{\pi}_{2}$ (Minimal angle)")
         sns.despine()
         plt.grid(alpha=0.25)
         # plt.tight_layout()
         # plt.savefig(f"figs/ccs_dst{self.iteration}.pdf", format="pdf", bbox_inches="tight")
-        plt.savefig(f"figs/ccs_dst{self.iteration}.pdf", format="pdf")
+        plt.savefig(f"src/ols/figs/ccs_dst{self.iteration}.pdf", format="pdf")
         plt.show()
 
         # wb.log(
@@ -441,25 +448,58 @@ class OLS:
         # )
 
 
+def solve(w, prev_run_metadata, reuse_mode):
+
+    sys.stdout = open(os.devnull, 'w')
+    start = time.time()
+
+    ppo = MindmapPPOMultithread(quiet=True)
+
+    # Setting the new preferences
+    ppo.env.w_rewards = [w[0], w[1], 0]  # TODO - only assume 2 objectives
+    print(f"Begin execution with weights: {ppo.env.w_rewards}")
+
+    if len(prev_run_metadata) == 0:
+        ppo.run_episodes(exec_mode="train")
+    else:
+        ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
+                         checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
+
+    sys.stdout = sys.__stdout__
+
+    print(f"Execution time {time.time() - start} seconds.")
+
+    # Get the value of current execution
+    iters = ppo.test_n_epochs
+    n_obj = ppo.env.num_objectives
+    values = np.zeros((iters, n_obj))
+    for i in range(iters):
+        observation = np.zeros_like(ppo.env.states_nn)
+        init_observations = th.tensor(np.array(observation), dtype=th.float)
+        values[i] = ppo.critic(init_observations).detach().numpy()
+    ppo.runner.close()
+
+    # Keep the best weight and output dir of current run for the next one
+    best_weight = ppo.best_weight
+    output_dir = ppo.output_dir
+
+    return (np.mean(values, axis=0) * ppo.env.norm_factor)[:2], \
+        {"output_dir": output_dir, "best_weight": best_weight}  # TODO - Only assume 2 objectives
+
 if __name__ == "__main__":
 
-    def solve(w):
-        env = gym.make('cartpole-envi-v1')
-        # return np.array(list(map(float, input().split())), dtype=np.float32)
-        q_table, bins = Qtable(len(env.observation_space.low), env.action_space.n, num_objectives=2)
+    os.chdir("../../.")
 
-        value = Q_learning(q_table, bins, lr = 0.15, gamma = 1, episodes = 5*10**3, timestep =
-        100, num_objectives=2, weights=w)
-
-        return value
+    reuse_mode = "partial"
     m = 2 #number of objectives
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
+    prev_run_metadata = {}
     while not ols.ended():
         # Select the weight to process
         w = ols.next_w()
         print("w:", w)
         # Solve the single objective problem with the given weight
-        value = solve(w)
+        value, prev_run_metadata = solve(w, prev_run_metadata, reuse_mode)
         ols.add_solution(value, w)
         # Plot the convex coverage set
         ols.plot_ccs(ols.ccs, ols.ccs_weights)

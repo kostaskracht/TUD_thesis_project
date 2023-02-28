@@ -219,17 +219,17 @@ class MindmapPPOMultithread(MindmapPPO):
         self.runner = MultiRunner(self, processes=self.processes, fork_on=self.fork_on) if (self.multirunner == True) \
             else Runner(self)
 
-    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None):
+    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_execution="full"):
         # Iterate over episodes
         # If we are in training mode
         if (exec_mode == "train") or (exec_mode == "continue_training"):
 
             if exec_mode == "continue_training":
-                self._load_model_weights(checkpoint_dir, checkpoint_ep)
+                self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_execution)
 
-            print(f"Starting training.")
+            if not self.quiet: print(f"Starting training.")
             for episode in range(self.n_epochs):
-                print(f"Episode {episode}:")
+                if not self.quiet: print(f"Episode {episode}:")
                 self.buffer.reset_buffer()
                 transition_buffers_list = self.runner.run(self.env.timesteps, blueprint=self.buffer,
                                                           transition_buffer_dict={"transition_buffer": self.buffer})
@@ -273,7 +273,7 @@ class MindmapPPOMultithread(MindmapPPO):
 
                 if self.test_interval:
                     if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
-                        print(f"Beginning test runs with current weights.")
+                        if not self.quiet: print(f"Beginning test runs with current weights.")
                         test_rewards = []
                         for test_episode in range(self.test_n_epochs):
                             test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
@@ -281,10 +281,15 @@ class MindmapPPOMultithread(MindmapPPO):
                             self.total_rewards_test.append(np.mean(test_rewards))
                             self.log_after_test_episode(np.mean(test_rewards), episode)
 
-        elif exec_mode == "test":
-            self._load_model_weights(checkpoint_dir, checkpoint_ep)
+                # CRITIC ERROR
+                if np.sqrt(critic_loss)/returns < 0.1:
+                    print(f"STOPPING EXECUTION DUE TO CONVERGENCE OF RETURNS AND VALUES IN EPISODE {episode}.")
+                    break
 
-            print(f"Starting testing")
+        elif exec_mode == "test":
+            self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_execution)
+
+            if not self.quiet: print(f"Starting testing")
             for episode in range(self.test_n_epochs):
                 self.run_episode(episode, train_phase="test")
         else:

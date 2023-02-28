@@ -282,7 +282,7 @@ def loadAON(network: FlowTransportNetwork, computeXbar: bool = True):
     return SPTT, x_bar
 
 
-def readDemand(demand_df: pd.DataFrame, network: FlowTransportNetwork):
+def readDemand(demand_df: pd.DataFrame, network: FlowTransportNetwork, verbose=True):
     for index, row in demand_df.iterrows():
 
         init_node = str(int(row["init_node"]))
@@ -297,11 +297,12 @@ def readDemand(demand_df: pd.DataFrame, network: FlowTransportNetwork):
         if term_node not in network.zoneSet[init_node].destList:
             network.zoneSet[init_node].destList.append(term_node)
 
-    print(len(network.tripSet), "OD pairs")
-    print(len(network.zoneSet), "OD zones")
+    if verbose:
+        print(len(network.tripSet), "OD pairs")
+        print(len(network.zoneSet), "OD zones")
 
 
-def readNetwork(network_df: pd.DataFrame, network: FlowTransportNetwork):
+def readNetwork(network_df: pd.DataFrame, network: FlowTransportNetwork, verbose=True):
     for index, row in network_df.iterrows():
 
         init_node = str(int(row["init_node"]))
@@ -337,8 +338,9 @@ def readNetwork(network_df: pd.DataFrame, network: FlowTransportNetwork):
         if init_node not in network.nodeSet[term_node].inLinks:
             network.nodeSet[term_node].inLinks.append(init_node)
 
-    print(len(network.nodeSet), "nodes")
-    print(len(network.linkSet), "links")
+    if verbose:
+        print(len(network.nodeSet), "nodes")
+        print(len(network.linkSet), "links")
 
 
 def get_TSTT(network: FlowTransportNetwork, costFunction=BPRcostFunction, use_max_capacity: bool = True):
@@ -508,8 +510,8 @@ def load_network(net_file: str,
 
     network = FlowTransportNetwork()
 
-    readDemand(demand_df, network=network)
-    readNetwork(net_df, network=network)
+    readDemand(demand_df, network=network, verbose=verbose)
+    readNetwork(net_df, network=network, verbose=verbose)
 
     network.originZones = set([k[0] for k in network.tripSet])
 

@@ -10,3 +10,4 @@ cvxpy
 tqdm
 tensorboard
 seaborn
+pymoo

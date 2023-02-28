@@ -75,7 +75,7 @@ class ThesisEnv(gym.Env):
 
         # Initialize road as graph network
         self.net_file = "data/init_data/sioux_falls/SiouxFalls_net.csv"
-        self.road_network = load_network(net_file=self.net_file)
+        self.road_network = load_network(net_file=self.net_file, verbose=False)
         # For debugging purposes, to play with the capacity
         # for link in self.road_network.linkSet:
         #     self.road_network.linkSet[link].capacity = self.road_network.linkSet[link].capacity
@@ -120,8 +120,8 @@ class ThesisEnv(gym.Env):
 
         for key, link in self.road_network.linkSet.items():
             # self.road_network.linkSet[key].beta = 2
-            self.road_network.linkSet[key].max_capacity *= 0.25
-            self.road_network.linkSet[key].capacity *= 0.25
+            self.road_network.linkSet[key].max_capacity *= 0.1
+            self.road_network.linkSet[key].capacity *= 0.1
             self.road_network.linkSet[key].flow_init = 0
             self.road_network.linkSet[key].max_capacity_init = self.road_network.linkSet[key].max_capacity
 

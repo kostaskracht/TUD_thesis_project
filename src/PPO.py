@@ -213,9 +213,16 @@ class MindmapActor(nn.Module):
         checkpoint_path = f"{self.checkpoint_folder}ep{episode}_{self.checkpoint_suffix}.pth"
         th.save(self.state_dict(), checkpoint_path)
 
-    def load_checkpoint(self, checkpoint_dir, checkpoint_ep):
+    def load_checkpoint(self, checkpoint_dir, checkpoint_ep, reuse_mode):
         checkpoint_path = f"{checkpoint_dir}ep{checkpoint_ep}_{self.checkpoint_suffix}.pth"
-        self.load_state_dict(th.load(checkpoint_path, map_location=self.device))
+        dict_to_load = th.load(checkpoint_path, map_location=self.device)
+        if reuse_mode == "partial":
+            # Don't load the final layer!
+
+            for weight in list(self.state_dict().keys())[-2:]:
+                dict_to_load[weight] = self.state_dict()[weight]
+
+        self.load_state_dict(dict_to_load)
 
 
 class MindmapCritic(MindmapActor):
@@ -247,6 +254,9 @@ class MindmapPPO:
         self.quiet = quiet
         self.param_file = param_file
         self.param_dict = self._load_yaml_file()
+
+        # if self.quiet:
+        #     sys.stdout = open(os.devnull, 'w')
 
         # Create class attributes from parameters dictionary
         self._load_params()
@@ -330,15 +340,15 @@ class MindmapPPO:
 
         return action, prob, value
 
-    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None):
+    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
         # Iterate over episodes
         # If we are in training mode
         if (exec_mode == "train") or (exec_mode == "continue_training"):
 
             if exec_mode == "continue_training":
-                self._load_model_weights(checkpoint_dir, checkpoint_ep)
+                self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
 
-            print(f"Starting training.")
+            if not self.quiet: print(f"Starting training.")
             for episode in range(self.n_epochs):
                 returns = self.run_episode(episode, train_phase="learn")
                 # log everything that is needed
@@ -350,7 +360,7 @@ class MindmapPPO:
 
                 if self.test_interval:
                     if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
-                        print(f"Beginning test runs with current weights.")
+                        if not self.quiet: print(f"Beginning test runs with current weights.")
                         test_rewards = []
                         for test_episode in range(self.test_n_epochs):
                             test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
@@ -358,9 +368,9 @@ class MindmapPPO:
                         self.log_after_test_episode(np.mean(test_rewards), episode)
 
         elif exec_mode == "test":
-            self._load_model_weights(checkpoint_dir, checkpoint_ep)
+            self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
 
-            print(f"Starting testing")
+            if not self.quiet: print(f"Starting testing")
             for episode in range(self.test_n_epochs):
                 self.run_episode(episode, train_phase="test")
         else:
@@ -420,7 +430,7 @@ class MindmapPPO:
                         f"Execution mode {train_phase} not relevant. Available options are learn and test.")
 
                 act, counts = np.unique(self.buffer.action_buffer, return_counts=True)
-                print(f"{train_phase} episode: {episode}, Total return:"
+                if not self.quiet: print(f"{train_phase} episode: {episode}, Total return:"
                       f" {np.sum(self.buffer.reward_buffer, axis=0) * self.env.norm_factor} "
                       f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.env.timesteps)))}"
                       # f"Total urgent comps {total_urgent_comps}"
@@ -474,7 +484,10 @@ class MindmapPPO:
                 critic_values = th.einsum("ij,j->i", self.critic(observation_buffer), th.from_numpy(np.asarray(self.env.w_rewards)).float())
                 critic_values = th.squeeze(critic_values)
 
-                state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
+                try:
+                    state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
+                except:
+                    print("Found the error!")
                 new_probs = state_dist.log_prob(action_buffer).sum(dim=1)
 
                 actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
@@ -501,7 +514,7 @@ class MindmapPPO:
 
                 if self.target_kl is not None and approx_kl_div > 1.5 * self.target_kl:
                     if not self.env.quiet or True:
-                        print(
+                        if not self.quiet: print(
                             f"Early stopping at step {epoch} due to reaching max kl: "
                             f"{approx_kl_div:.4f}")
                         continue_training = False
@@ -534,7 +547,7 @@ class MindmapPPO:
         # self.buffer.counter, self.buffer.trajectory_start_index = 0, 0
         arr_mean, arr_std = (np.mean(arr), np.std(arr))
 
-        if arr_std != 0:
+        if arr_std == 0:
             arr_std = 1
 
         return (arr - arr_mean) / arr_std
@@ -564,13 +577,13 @@ class MindmapPPO:
         value_loss = F.mse_loss(returns, values_pred)
         return value_loss
 
-    def _load_model_weights(self, checkpoint_dir, checkpoint_ep):
-        print(f"Loading specified weights")
+    def _load_model_weights(self, checkpoint_dir, checkpoint_ep, reuse_mode):
+        if not self.quiet: print(f"Loading specified weights")
         if (not checkpoint_dir) or (not str(checkpoint_ep)):
             raise ValueError("In order to run in test mode, you need to specify a checkpoint "
                              "directory (checkpoint_dir) and a checkpoint epoch (checkpoint_ep)")
-        self.actor.load_checkpoint(checkpoint_dir, checkpoint_ep)
-        self.critic.load_checkpoint(checkpoint_dir, checkpoint_ep)
+        self.actor.load_checkpoint(checkpoint_dir, checkpoint_ep, reuse_mode)
+        self.critic.load_checkpoint(checkpoint_dir, checkpoint_ep, reuse_mode)
 
     def _load_yaml_file(self):
         """
@@ -645,6 +658,7 @@ class MindmapPPO:
                 os.remove(self.actor.checkpoint_folder + filee)
 
         self.best_result = np.max(self.total_rewards_test)
+        self.best_weight = episode_to_keep1
         print(f"Best result: {self.best_result}")
         print(f"Value of best network weights: {best_episode:.0f}")
 
@@ -661,7 +675,7 @@ if __name__ == "__main__":
     ppo.run_episodes(exec_mode="train")
     # ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20230222162100_0290/",
     #                  checkpoint_ep=18500)
-    # ppo.run_episodes(exec_mode="continue_training",checkpoint_dir="src/model_weights/20230214110319/",
-    #                  checkpoint_ep=19999)
+    # ppo.run_episodes(exec_mode="continue_training",checkpoint_dir="src/model_weights/20230228181434_311/",
+    #                  checkpoint_ep=199)
     # print(f"Mean of test rewards: {np.mean(ppo.total_rewards_test)}\n")
     print(f"Total time {time.time() - start}")

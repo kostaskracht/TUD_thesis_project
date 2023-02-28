@@ -1,12 +1,13 @@
 seed: 123
 gamma: 0.97
+quiet: True
 num_components: 76
 num_states_cci: 6
 num_states_iri: 5
 num_objectives: 3
 num_maintenance: 4
 num_inspections: 3
-norm_factor: [1, 1.0E+06, 1.0E+04] #[9.53120000e+01, 5.88369327e+08, 3.05471214e+08] # TODO - Update
+norm_factor: [1, 1.0E+08, 1.0E+04] #[9.53120000e+01, 5.88369327e+08, 3.05471214e+08] # TODO - Update
 w_rewards: [1, 0, 0]
 costs:
   c_mai_filename: "data/extracted_data/sioux_falls/cost_comp_action_pav2.csv"

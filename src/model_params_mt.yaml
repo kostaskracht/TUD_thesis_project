@@ -1,5 +1,6 @@
 env_name: "thesis-env-v1"
 gamma: 0.99
+quiet: True
 multirunner: True
 fork_on: "thread" # "thread" or "process"
 processes: 4
