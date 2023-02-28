@@ -302,6 +302,8 @@ class MindmapPPOMultithread(MindmapPPO):
         np.save(self.output_dir + "actions_test.npy", self.total_actions_test)
         np.save(self.output_dir + "rewards_test.npy", self.total_rewards_test)
 
+        self.clear_bad_checkpoints()
+
 
 if __name__ == "__main__":
     os.chdir("../")
