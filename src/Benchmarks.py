@@ -264,7 +264,7 @@ class Benchmarks:
         """
         Calculate the best combination of thresholds/intervals from all the experiments
         :param costs: ndarray - all costs from all experiments
-        :param num_iter: int - iteration number, in case of one one input cost
+        :param num_iter: int - iteration number, in case of one input cost
         :param mode: str - the type of benchmark (f.i. time, condition)
         :return: -
         """

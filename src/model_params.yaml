@@ -2,7 +2,7 @@ env_name: "thesis-env-v1"
 multirunner: True
 processes: 4
 gamma: 0.99
-n_epochs: 500
+n_epochs: 5000
 seed: 123
 device: "cpu"
 test_interval: 25000 # set to null to disable testing

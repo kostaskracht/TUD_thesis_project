@@ -56,7 +56,7 @@ class MindmapRolloutBuffer:
         self.advantage_buffer = np.zeros(self.size, dtype=np.float32)
         self.reward_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
         self.return_buffer = np.zeros(self.size, dtype=np.float32)
-        self.value_buffer = np.zeros(self.size, dtype=np.float32)
+        self.value_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
         self.logprobability_buffer = np.zeros(self.size, dtype=np.float32)
         self.counter, self.trajectory_start_index = 0, 0
 
@@ -82,14 +82,15 @@ class MindmapRolloutBuffer:
         rewards = np.append(self.reward_buffer[path_slice], [[last_value] * self.num_objectives], axis=0)
         rewards_dot = np.einsum('ij,j->i', rewards, w_rewards)
 
-        values = np.append(self.value_buffer[path_slice], last_value)
-        deltas = (rewards_dot + self.gamma * np.roll(values, -1) - values)[:-1]
+        values = np.append(self.value_buffer[path_slice], [[last_value] * self.num_objectives], axis=0)
+        values_dot = np.einsum('ij,j->i', values, w_rewards)
+        deltas = (rewards_dot + self.gamma * np.roll(values_dot, -1) - values_dot)[:-1]
 
         # self.advantage_buffer[path_slice] = self.discounted_cumulative_sums(deltas, self.gamma * self.lam)
         self.return_buffer[path_slice] = self.discounted_cumulative_sums(rewards_dot, self.gamma)[:-1]
 
         # Simplification
-        self.advantage_buffer[path_slice] = self.return_buffer[path_slice] - values[:-1]
+        self.advantage_buffer[path_slice] = self.return_buffer[path_slice] - values_dot[:-1]
 
         self.trajectory_start_index = self.counter
 
@@ -115,7 +116,7 @@ class MindmapRolloutBuffer:
 
 
 class MindmapActor(nn.Module):
-    def __init__(self, num_components, num_states, num_actions, device, timestamp, optimizer, lr,
+    def __init__(self, num_components, num_states, num_actions, num_objectives, device, timestamp, optimizer, lr,
                  lr_min, lr_decay_step, lr_decay_episode_perc, n_epochs, architecture,
                  checkpoint_dir,
                  checkpoint_suffix="actor"):
@@ -131,6 +132,7 @@ class MindmapActor(nn.Module):
         self.num_components = num_components
         self.num_states = num_states
         self.num_actions = num_actions
+        self.num_objectives = num_objectives
         self.n_epochs = n_epochs
         self.device = device
 
@@ -141,7 +143,7 @@ class MindmapActor(nn.Module):
         if self.checkpoint_suffix == "actor":
             self.output_dim = self.num_components * self.num_actions
         else:
-            self.output_dim = 1
+            self.output_dim = self.num_objectives
 
         # Initialize the optimizer parameters
         self.optimizer_name = optimizer
@@ -217,11 +219,11 @@ class MindmapActor(nn.Module):
 
 
 class MindmapCritic(MindmapActor):
-    def __init__(self, num_components, num_states, num_actions, device, timestamp, optimizer, lr,
+    def __init__(self, num_components, num_states, num_actions, num_objectives, device, timestamp, optimizer, lr,
                  lr_min, lr_decay_step, lr_decay_episode_perc, n_epochs, architecture,
                  checkpoint_dir,
                  checkpoint_suffix="critic"):
-        super(MindmapCritic, self).__init__(num_components, num_states, num_actions,
+        super(MindmapCritic, self).__init__(num_components, num_states, num_actions, num_objectives,
                                             device, timestamp, optimizer, lr, lr_min,
                                             lr_decay_step, lr_decay_episode_perc, n_epochs,
                                             architecture,
@@ -273,12 +275,12 @@ class MindmapPPO:
 
         # Initialize actor and critic networks
         self.actor = MindmapActor(self.env.num_components, self.env.num_states_iri,
-                                  self.env.num_actions, self.device, self.timestamp,
+                                  self.env.num_actions, self.env.num_objectives, self.device, self.timestamp,
                                   self.optimizer_act, self.lr_act, self.lr_act_min,
                                   self.lr_decay_step, self.lr_decay_episode_perc, self.n_epochs,
                                   self.actor_arch, self.checkpoint_dir)
         self.critic = MindmapCritic(self.env.num_components, self.env.num_states_iri,
-                                    self.env.num_actions, self.device, self.timestamp,
+                                    self.env.num_actions, self.env.num_objectives, self.device, self.timestamp,
                                     self.optimizer_crit, self.lr_crit, self.lr_crit_min,
                                     self.lr_decay_step, self.lr_decay_episode_perc, self.n_epochs,
                                     self.critic_arch, self.checkpoint_dir, checkpoint_suffix="crit")
@@ -318,7 +320,7 @@ class MindmapPPO:
                 [[np.random.choice(range(dummy_dist.shape[2]), replace=True, p=dist) for dist in dummy_dist[0]]])
             action = action.int()
 
-        value = self.critic(observation_tensor.float())
+        value = th.dot(self.critic(observation_tensor.float()), th.from_numpy(np.asarray(self.env.w_rewards)).float())
         log_probs = th.squeeze(logits_softmax.log_prob(action))
         action = th.squeeze(action, dim=0).numpy()
 
@@ -398,7 +400,7 @@ class MindmapPPO:
             if done or (cur_timestep == self.env.timesteps - 1):
                 observation_tensor = th.tensor(np.array([observation_new]), dtype=th.float).to(
                     self.device)
-                last_value = 0 if done else self.critic(observation_tensor.reshape(1, -1)).item()
+                last_value = 0 if done else th.dot(self.critic(observation_tensor.reshape(1, -1)).item(), self.env.w_rewards)
                 self.buffer.finish_trajectory(last_value, self.env.w_rewards)
                 self.env.reset()
 
@@ -469,7 +471,7 @@ class MindmapPPO:
                 return_buffer = th.Tensor(return_buffer_init[indices]).to(self.device)
                 advantage_buffer = th.Tensor(advantage_buffer_init[indices]).to(self.device)
 
-                critic_values = self.critic(observation_buffer)
+                critic_values = th.einsum("ij,j->i", self.critic(observation_buffer), th.from_numpy(np.asarray(self.env.w_rewards)).float())
                 critic_values = th.squeeze(critic_values)
 
                 state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
@@ -532,7 +534,11 @@ class MindmapPPO:
         # self.buffer.counter, self.buffer.trajectory_start_index = 0, 0
         arr_mean, arr_std = (np.mean(arr), np.std(arr))
 
+        if arr_std != 0:
+            arr_std = 1
+
         return (arr - arr_mean) / arr_std
+
     def _policy_loss(self, old_pi, new_pi, advantages):
         # ratio between old and new policy, should be one at the first iteration
         ratio = th.exp(new_pi - old_pi)
@@ -638,7 +644,8 @@ class MindmapPPO:
             if ("ep" + str(episode_to_keep1) + "_" not in filee) and ("ep" + str(episode_to_keep2) + "_" not in filee):
                 os.remove(self.actor.checkpoint_folder + filee)
 
-        print(f"Best result: {np.max(self.total_rewards_test)}")
+        self.best_result = np.max(self.total_rewards_test)
+        print(f"Best result: {self.best_result}")
         print(f"Value of best network weights: {best_episode:.0f}")
 
 if __name__ == "__main__":

@@ -9,3 +9,4 @@ openmatrix
 cvxpy
 tqdm
 tensorboard
+seaborn
