@@ -445,8 +445,6 @@ class OLS:
             img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
             img_arr = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
-            img_arr = img_arr
-
             writer.add_image("CCS", img_arr, dataformats="HWC", global_step=self.iteration)
 
         plt.savefig(f"src/ols/figs/ccs_dst{self.iteration}.pdf", format="pdf")
