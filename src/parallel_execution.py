@@ -87,7 +87,7 @@ class Runner:
                 self.env.reset()
 
                 act, counts = np.unique(my_transition_buffer.action_buffer[:self.env.timesteps], return_counts=True)
-                print(
+                if not self.quiet: print(
                     #                     f"{train_phase} episode: {episode}, Total return:"
                     f"{np.sum(my_transition_buffer.reward_buffer, axis=0) * self.env.norm_factor} "
                     # f" {my_transition_buffer.reward_buffer.sum() * self.env.norm_factor[0]} "
@@ -282,8 +282,9 @@ class MindmapPPOMultithread(MindmapPPO):
                             self.log_after_test_episode(np.mean(test_rewards), episode)
 
                 # CRITIC ERROR
-                if np.sqrt(critic_loss)/returns < 0.1:
+                if np.sqrt(critic_loss.detach().numpy()/returns) < 0.1:
                     print(f"STOPPING EXECUTION DUE TO CONVERGENCE OF RETURNS AND VALUES IN EPISODE {episode}.")
+                    print(f"Critic loss is {critic_loss.detatch().numpy()} and returns are {returns}.")
                     break
 
         elif exec_mode == "test":

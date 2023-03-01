@@ -450,7 +450,7 @@ class OLS:
 
 def solve(w, prev_run_metadata, reuse_mode):
 
-    sys.stdout = open(os.devnull, 'w')
+    # sys.stdout = open(os.devnull, 'w')
     start = time.time()
 
     ppo = MindmapPPOMultithread(quiet=True)
@@ -465,7 +465,7 @@ def solve(w, prev_run_metadata, reuse_mode):
         ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
                          checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
 
-    sys.stdout = sys.__stdout__
+    # sys.stdout = sys.__stdout__
 
     print(f"Execution time {time.time() - start} seconds.")
 
@@ -480,17 +480,17 @@ def solve(w, prev_run_metadata, reuse_mode):
     ppo.runner.close()
 
     # Keep the best weight and output dir of current run for the next one
-    best_weight = ppo.best_weight
+    best_episode = ppo.best_weight
     output_dir = ppo.output_dir
 
     return (np.mean(values, axis=0) * ppo.env.norm_factor)[:2], \
-        {"output_dir": output_dir, "best_weight": best_weight}  # TODO - Only assume 2 objectives
+        {"output_dir": output_dir, "best_episode": best_episode}  # TODO - Only assume 2 objectives
 
 if __name__ == "__main__":
 
     os.chdir("../../.")
 
-    reuse_mode = "partial"
+    reuse_mode = "full"
     m = 2 #number of objectives
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_run_metadata = {}
