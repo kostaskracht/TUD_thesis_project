@@ -1,5 +1,5 @@
 # OLS algorithm: Derived from
-
+import io
 from itertools import combinations
 from typing import List, Optional
 
@@ -366,7 +366,7 @@ class OLS:
                 return True
         return False
 
-    def plot_ccs(self, ccs, ccs_weights, gpi_agent=None, eval_env=None):
+    def plot_ccs(self, ccs, ccs_weights, gpi_agent=None, eval_env=None, writer=None):
         import seaborn as sns
         params = {
             "text.latex.preamble": r"\usepackage{amsmath}",
@@ -412,7 +412,7 @@ class OLS:
                 x_gpi.append(value[0])
                 y_gpi.append(value[1])
 
-        plt.figure()
+        fig = plt.figure()
         if gpi_agent is not None:
             plt.scatter(
                 x_gpi,
@@ -436,6 +436,19 @@ class OLS:
         plt.grid(alpha=0.25)
         # plt.tight_layout()
         # plt.savefig(f"figs/ccs_dst{self.iteration}.pdf", format="pdf", bbox_inches="tight")
+
+        if writer:
+            # Log to tensorboard
+            fig.canvas.draw()
+
+            # Convert the figure to numpy array, read the pixel values and reshape the array
+            img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+            img_arr = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+            img_arr = img_arr
+
+            writer.add_image("CCS", img_arr, dataformats="HWC", global_step=self.iteration)
+
         plt.savefig(f"src/ols/figs/ccs_dst{self.iteration}.pdf", format="pdf")
         plt.show()
 
@@ -454,6 +467,7 @@ def solve(w, prev_run_metadata, reuse_mode):
     start = time.time()
 
     ppo = MindmapPPOMultithread(quiet=True)
+    writer = ppo.writer
 
     # Setting the new preferences
     ppo.env.w_rewards = [w[0], w[1], 0]  # TODO - only assume 2 objectives
@@ -484,7 +498,9 @@ def solve(w, prev_run_metadata, reuse_mode):
     output_dir = ppo.output_dir
 
     return (np.mean(values, axis=0) * ppo.env.norm_factor)[:2], \
-        {"output_dir": output_dir, "best_episode": best_episode}  # TODO - Only assume 2 objectives
+        {"output_dir": output_dir, "best_episode": best_episode}, \
+        writer
+        # TODO - Only assume 2 objectives
 
 if __name__ == "__main__":
 
@@ -499,9 +515,9 @@ if __name__ == "__main__":
         w = ols.next_w()
         print("w:", w)
         # Solve the single objective problem with the given weight
-        value, prev_run_metadata = solve(w, prev_run_metadata, reuse_mode)
+        value, prev_run_metadata, writer = solve(w, prev_run_metadata, reuse_mode)
         ols.add_solution(value, w)
         # Plot the convex coverage set
-        ols.plot_ccs(ols.ccs, ols.ccs_weights)
+        ols.plot_ccs(ols.ccs, ols.ccs_weights, writer)
 
         print("hv:", hypervolume(np.zeros(m), ols.ccs))

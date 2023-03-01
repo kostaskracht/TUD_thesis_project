@@ -303,8 +303,8 @@ class MindmapPPO:
                     "lr_critic": "Critic/Critic Learning Rate over epochs",
                     "actor_loss": "Actor/Actor Loss over epochs",
                     "critic_loss": "Critic/Critic Loss over epochs"}
-        dict_to_log = {key: str(value) for key, value in self.param_dict.items()}
-        self.writer.add_hparams(dict_to_log, {})
+
+        self.log_at_start()
 
         print(f"Current execution timestamp is {self.timestamp}")
 
@@ -466,7 +466,7 @@ class MindmapPPO:
 
         for epoch in range(self.train_iters):
 
-            permutation = th.randperm(self.env.timesteps)
+            permutation = th.randperm(self.env.timesteps * self.processes)
 
             for i in range(0, self.env.timesteps, self.batch_size):
                 self.actor.optimizer.zero_grad()
@@ -641,6 +641,14 @@ class MindmapPPO:
             self.writer.add_scalar(self.log["critic_loss"],
                                    critic_loss,
                                    episode)
+
+    def log_at_start(self):
+        self.writer.add_graph(self.actor)
+        self.writer.add_graph(self.actor)
+
+        dict_to_log = {key: str(value) for key, value in self.param_dict.items()}
+        self.writer.add_hparams(dict_to_log, {})
+
 
     def clear_bad_checkpoints(self):
         best_episode = np.clip(np.argmax(np.asarray(self.total_rewards_test))*self.test_interval,

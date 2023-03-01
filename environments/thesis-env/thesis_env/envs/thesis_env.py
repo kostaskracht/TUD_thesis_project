@@ -119,7 +119,7 @@ class ThesisEnv(gym.Env):
             self.road_network = road_network_tmp
 
         for key, link in self.road_network.linkSet.items():
-            # self.road_network.linkSet[key].beta = 2
+            self.road_network.linkSet[key].beta = 2
             self.road_network.linkSet[key].max_capacity *= 0.1
             self.road_network.linkSet[key].capacity *= 0.1
             self.road_network.linkSet[key].flow_init = 0
