@@ -56,7 +56,7 @@ class ThesisEnv(gym.Env):
         self.action_space = spaces.MultiDiscrete([(self.num_actions)]*self.num_components)
 
         # Define the state space
-        self.observation_space = spaces.MultiDiscrete([self.num_states_iri]*self.num_components)
+        self.observation_space = spaces.Discrete(self.num_states_iri*self.num_components)
 
         # Compute the total cost per action
         self.c_act = self.c_mai + self.c_ins
