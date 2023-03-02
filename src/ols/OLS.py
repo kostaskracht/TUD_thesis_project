@@ -476,7 +476,6 @@ def solve(w, prev_run_metadata, reuse_mode):
     else:
         ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
                          checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
-    ppo.best_weight = 0
 
     # sys.stdout = sys.__stdout__
 
@@ -494,7 +493,7 @@ def solve(w, prev_run_metadata, reuse_mode):
 
     # Keep the best weight and output dir of current run for the next one
     best_episode = ppo.best_weight
-    output_dir = ppo.output_dir
+    output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
 
     return (np.mean(values, axis=0) * ppo.env.norm_factor)[:2], \
         {"output_dir": output_dir, "best_episode": best_episode}, \

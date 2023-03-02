@@ -284,7 +284,7 @@ class MindmapPPOMultithread(MindmapPPO):
                 # CRITIC ERROR
                 if np.sqrt(np.abs(critic_loss.detach().numpy()/returns)) < 0.1:
                     print(f"STOPPING EXECUTION DUE TO CONVERGENCE OF RETURNS AND VALUES IN EPISODE {episode}.")
-                    print(f"Critic loss is {critic_loss.detatch().numpy()} and returns are {returns}.")
+                    print(f"Critic loss is {critic_loss.detach().numpy()} and returns are {returns}.")
                     break
 
         elif exec_mode == "test":
