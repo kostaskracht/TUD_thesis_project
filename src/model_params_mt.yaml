@@ -18,10 +18,10 @@ batch_size: 20
 train_iters: 50
 optimizer_act: "Adam"
 lr_act: 1.0e-4
-lr_act_min: 5.0e-6
+lr_act_min: 1.0e-5
 optimizer_crit: "Adam"
 lr_crit: 1.0e-3
-lr_crit_min: 5.0e-5
+lr_crit_min: 1.0e-4
 lr_decay_step: 200
 lr_decay_episode_perc: 0.8
 checkpoint_dir: "src/model_weights/"

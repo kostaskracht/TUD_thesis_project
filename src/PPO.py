@@ -643,8 +643,8 @@ class MindmapPPO:
                                    episode)
 
     def log_at_start(self):
-        self.writer.add_graph(self.actor)
-        self.writer.add_graph(self.actor)
+        # self.writer.add_graph(self.actor)
+        # self.writer.add_graph(self.actor)
 
         dict_to_log = {key: str(value) for key, value in self.param_dict.items()}
         self.writer.add_hparams(dict_to_log, {})

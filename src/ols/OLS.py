@@ -366,7 +366,7 @@ class OLS:
                 return True
         return False
 
-    def plot_ccs(self, ccs, ccs_weights, gpi_agent=None, eval_env=None, writer=None):
+    def plot_ccs(self, ccs, ccs_weights, writer=None, gpi_agent=None, eval_env=None):
         import seaborn as sns
         params = {
             "text.latex.preamble": r"\usepackage{amsmath}",
@@ -430,8 +430,8 @@ class OLS:
         # plt.ylim(max(y), min(y))
         # plt.scatter(x_css, y_css, label="CCS", marker="x", color="black")
         plt.legend(loc="best", fancybox=True, framealpha=0.5)
-        plt.xlabel("$\psi^{\pi}_{1}$ (Time alive)")
-        plt.ylabel("$\psi^{\pi}_{2}$ (Minimal angle)")
+        plt.xlabel("$\psi^{\pi}_{1}$ (Lifecycle cost)")
+        plt.ylabel("$\psi^{\pi}_{2}$ (Lifecycle carbon emissions)")
         sns.despine()
         plt.grid(alpha=0.25)
         # plt.tight_layout()
@@ -471,11 +471,12 @@ def solve(w, prev_run_metadata, reuse_mode):
     ppo.env.w_rewards = [w[0], w[1], 0]  # TODO - only assume 2 objectives
     print(f"Begin execution with weights: {ppo.env.w_rewards}")
 
-    if len(prev_run_metadata) == 0:
-        ppo.run_episodes(exec_mode="train")
-    else:
-        ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
-                         checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
+    # if len(prev_run_metadata) == 0:
+    #     ppo.run_episodes(exec_mode="train")
+    # else:
+    #     ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
+    #                      checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
+    ppo.best_weight = 0
 
     # sys.stdout = sys.__stdout__
 
@@ -516,6 +517,6 @@ if __name__ == "__main__":
         value, prev_run_metadata, writer = solve(w, prev_run_metadata, reuse_mode)
         ols.add_solution(value, w)
         # Plot the convex coverage set
-        ols.plot_ccs(ols.ccs, ols.ccs_weights, writer)
+        ols.plot_ccs(ols.ccs, ols.ccs_weights, writer=writer)
 
         print("hv:", hypervolume(np.zeros(m), ols.ccs))
