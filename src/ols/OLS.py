@@ -471,11 +471,11 @@ def solve(w, prev_run_metadata, reuse_mode):
     ppo.env.w_rewards = [w[0], w[1], 0]  # TODO - only assume 2 objectives
     print(f"Begin execution with weights: {ppo.env.w_rewards}")
 
-    # if len(prev_run_metadata) == 0:
-    #     ppo.run_episodes(exec_mode="train")
-    # else:
-    #     ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
-    #                      checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
+    if len(prev_run_metadata) == 0:
+        ppo.run_episodes(exec_mode="train")
+    else:
+        ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
+                         checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
     ppo.best_weight = 0
 
     # sys.stdout = sys.__stdout__
