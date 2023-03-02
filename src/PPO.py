@@ -173,7 +173,7 @@ class MindmapActor(nn.Module):
             else:
                 # Adding an activation function
                 try:
-                    self.layers.append(self.supported_activation_fns[layer])
+                    self.layers.append(copy(self.supported_activation_fns[layer]))
                 except ValueError(f"Activation function {layer} currently not supported!") as e:
                     print(e)
 
@@ -643,7 +643,7 @@ class MindmapPPO:
                                    episode)
 
     def log_at_start(self):
-        # self.writer.add_graph(self.actor)
+        self.writer.add_graph(self.actor, th.Tensor(self.env.states_nn))
         # self.writer.add_graph(self.actor)
 
         dict_to_log = {key: str(value) for key, value in self.param_dict.items()}
