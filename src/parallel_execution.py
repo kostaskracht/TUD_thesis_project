@@ -219,13 +219,13 @@ class MindmapPPOMultithread(MindmapPPO):
         self.runner = MultiRunner(self, processes=self.processes, fork_on=self.fork_on) if (self.multirunner == True) \
             else Runner(self)
 
-    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_execution="full"):
+    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
         # Iterate over episodes
         # If we are in training mode
         if (exec_mode == "train") or (exec_mode == "continue_training"):
 
             if exec_mode == "continue_training":
-                self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_execution)
+                self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
 
             if not self.quiet: print(f"Starting training.")
             for episode in range(self.n_epochs):
@@ -288,7 +288,7 @@ class MindmapPPOMultithread(MindmapPPO):
                     break
 
         elif exec_mode == "test":
-            self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_execution)
+            self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
 
             if not self.quiet: print(f"Starting testing")
             for episode in range(self.test_n_epochs):
