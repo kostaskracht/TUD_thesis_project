@@ -50,8 +50,7 @@ class MindmapRolloutBuffer:
         self.reset_buffer()
 
     def reset_buffer(self) -> None:
-        self.observation_buffer = np.zeros((self.size, self.observation_dimensions),
-                                           dtype=np.float32)
+        self.observation_buffer = np.zeros((self.size, self.observation_dimensions), dtype=np.float32)
         self.action_buffer = np.zeros((self.size, self.num_components), dtype=np.float32)
         self.advantage_buffer = np.zeros(self.size, dtype=np.float32)
         self.reward_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
@@ -80,7 +79,7 @@ class MindmapRolloutBuffer:
         # Finish the trajectory by computing advantage estimates and rewards-to-go
         path_slice = slice(self.trajectory_start_index, self.counter)
         rewards = np.append(self.reward_buffer[path_slice], [[last_value] * self.num_objectives], axis=0)
-        rewards_dot = np.einsum('ij,j->i', rewards, w_rewards)
+        # rewards_dot = np.einsum('ij,j->i', rewards, w_rewards)
 
         values = np.append(self.value_buffer[path_slice], [[last_value] * self.num_objectives], axis=0)
         values_dot = np.einsum('ij,j->i', values, w_rewards)
@@ -92,7 +91,6 @@ class MindmapRolloutBuffer:
 
         # Simplification
         self.advantage_buffer[path_slice] = returns_dot - values_dot[:-1]
-
         self.trajectory_start_index = self.counter
 
     def get(self):
@@ -140,7 +138,7 @@ class MindmapActor(nn.Module):
         # Setup network input and output
         # Since IRI is stationary, we don't need to add the time in the state embedding
         self.input_dim = (self.num_states) * self.num_components + 1
-        # self.input_dim = (self.num_states + 1) * self.num_components
+        # self.input_dim = (self.num_states + 1) * self.num_components + 1
         if self.checkpoint_suffix == "actor":
             self.output_dim = self.num_components * self.num_actions
         else:
@@ -188,8 +186,7 @@ class MindmapActor(nn.Module):
         self.to(self.device)
 
         # Initialize the learning rate scheduler
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_decay_step,
-                                                   gamma=self.gamma_decay)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.lr_decay_step, gamma=self.gamma_decay)
 
     def get_net_dims(self):
         net_dims = [self.input_dim] + \
@@ -219,7 +216,6 @@ class MindmapActor(nn.Module):
         dict_to_load = th.load(checkpoint_path, map_location=self.device)
         if reuse_mode == "partial":
             # Don't load the final layer!
-
             for weight in list(self.state_dict().keys())[-2:]:
                 dict_to_load[weight] = self.state_dict()[weight]
 
@@ -255,9 +251,6 @@ class MindmapPPO:
         self.quiet = quiet
         self.param_file = param_file
         self.param_dict = self._load_yaml_file()
-
-        # if self.quiet:
-        #     sys.stdout = open(os.devnull, 'w')
 
         # Create class attributes from parameters dictionary
         self._load_params()
@@ -403,7 +396,6 @@ class MindmapPPO:
             action, log_prob, value = self.sample_action(self.env.states_nn, episode)
 
             # Perform a step into the environment
-
             observation_new, reward, done, _ = self.env.step(self.env.actions[copy(action)])
             # total_urgent_comps += len(self.env.urgent_comps)
 
@@ -435,7 +427,8 @@ class MindmapPPO:
 
                 act, counts = np.unique(self.buffer.action_buffer, return_counts=True)
                 if not self.quiet: print(f"{train_phase} episode: {episode}, Total return:"
-                      f" {np.sum(self.buffer.reward_buffer, axis=0) * self.env.norm_factor} "
+                      # f" {np.sum(self.buffer.reward_buffer, axis=0) * self.env.norm_factor} "
+                      f" {self.buffer.return_buffer[0] * self.env.norm_factor} "
                       f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.env.timesteps)))}"
                       # f"Total urgent comps {total_urgent_comps}"
                       )
@@ -449,8 +442,6 @@ class MindmapPPO:
 
             self.log_after_training(episode, actor_loss, critic_loss)
 
-        # return np.sum(self.buffer.reward_buffer) * self.env.norm_factor
-        # return np.sum(np.einsum('ij,j->i', self.buffer.reward_buffer, self.env.w_rewards * self.env.norm_factor))
         return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards * self.env.norm_factor)
 
     def train(self):

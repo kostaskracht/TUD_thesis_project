@@ -164,7 +164,7 @@ class Benchmarks:
                 action += 3
             _, step_cost, _, _ = self.env.step([action] * self.env.num_components)
 
-            episode_cost += step_cost
+            episode_cost += step_cost * self.env.gamma**timestep
 
         return episode_cost * self.env.norm_factor
 
@@ -255,7 +255,7 @@ class Benchmarks:
                 if (timestep % inspect_int == 0) and (action[comp] != 4):
                     action[comp] += 2
             _, step_cost, _, _ = self.env.step(self.env.actions[action])
-            episode_cost += - step_cost
+            episode_cost += - step_cost * self.env.gamma**timestep
 
         return np.dot(episode_cost, self.env.w_rewards * self.env.norm_factor)
 
