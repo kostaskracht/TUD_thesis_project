@@ -41,7 +41,7 @@ class MindmapRolloutBuffer:
         self.num_objectives = num_objectives
         # The observation dimension equals to components*(states_num)
         # IRI is stationary, so state embedding only consists of IRI
-        self.observation_dimensions = self.num_components * (self.num_states)
+        self.observation_dimensions = self.num_components * (self.num_states) + 1
         self.size = timesteps
         self.gamma = gamma
         self.lam = lam
@@ -55,7 +55,7 @@ class MindmapRolloutBuffer:
         self.action_buffer = np.zeros((self.size, self.num_components), dtype=np.float32)
         self.advantage_buffer = np.zeros(self.size, dtype=np.float32)
         self.reward_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
-        self.return_buffer = np.zeros(self.size, dtype=np.float32)
+        self.return_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
         self.value_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
         self.logprobability_buffer = np.zeros(self.size, dtype=np.float32)
         self.counter, self.trajectory_start_index = 0, 0
@@ -84,13 +84,14 @@ class MindmapRolloutBuffer:
 
         values = np.append(self.value_buffer[path_slice], [[last_value] * self.num_objectives], axis=0)
         values_dot = np.einsum('ij,j->i', values, w_rewards)
-        deltas = (rewards_dot + self.gamma * np.roll(values_dot, -1) - values_dot)[:-1]
+        # deltas = (rewards_dot + self.gamma * np.roll(values_dot, -1) - values_dot)[:-1]
 
         # self.advantage_buffer[path_slice] = self.discounted_cumulative_sums(deltas, self.gamma * self.lam)
-        self.return_buffer[path_slice] = self.discounted_cumulative_sums(rewards_dot, self.gamma)[:-1]
+        self.return_buffer[path_slice] = self.discounted_cumulative_sums(rewards, self.gamma)[:-1]
+        returns_dot = np.einsum('ij,j->i', self.return_buffer[path_slice], w_rewards)
 
         # Simplification
-        self.advantage_buffer[path_slice] = self.return_buffer[path_slice] - values_dot[:-1]
+        self.advantage_buffer[path_slice] = returns_dot - values_dot[:-1]
 
         self.trajectory_start_index = self.counter
 
@@ -138,7 +139,7 @@ class MindmapActor(nn.Module):
 
         # Setup network input and output
         # Since IRI is stationary, we don't need to add the time in the state embedding
-        self.input_dim = (self.num_states) * self.num_components
+        self.input_dim = (self.num_states) * self.num_components + 1
         # self.input_dim = (self.num_states + 1) * self.num_components
         if self.checkpoint_suffix == "actor":
             self.output_dim = self.num_components * self.num_actions
@@ -302,7 +303,8 @@ class MindmapPPO:
                     "lr_actor": "Actor/Actor Learning Rate over epochs",
                     "lr_critic": "Critic/Critic Learning Rate over epochs",
                     "actor_loss": "Actor/Actor Loss over epochs",
-                    "critic_loss": "Critic/Critic Loss over epochs"}
+                    "critic_loss": "Critic/Critic Loss over epochs",
+                    "critic_value": "Critic/Value"}
 
         self.log_at_start()
 
@@ -356,7 +358,9 @@ class MindmapPPO:
                     self.actor.save_checkpoint(episode)
                     self.critic.save_checkpoint(episode)
 
-                self.log_after_train_episode(episode, returns)
+                values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(),
+                                self.env.w_rewards * self.env.norm_factor)
+                self.log_after_train_episode(episode, returns, values)
 
                 if self.test_interval:
                     if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
@@ -446,7 +450,8 @@ class MindmapPPO:
             self.log_after_training(episode, actor_loss, critic_loss)
 
         # return np.sum(self.buffer.reward_buffer) * self.env.norm_factor
-        return np.sum(np.einsum('ij,j->i', self.buffer.reward_buffer, self.env.w_rewards * self.env.norm_factor))
+        # return np.sum(np.einsum('ij,j->i', self.buffer.reward_buffer, self.env.w_rewards * self.env.norm_factor))
+        return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards * self.env.norm_factor)
 
     def train(self):
         if self.normalize_advantage:
@@ -482,7 +487,9 @@ class MindmapPPO:
                 advantage_buffer = th.Tensor(advantage_buffer_init[indices]).to(self.device)
 
                 critic_values = th.einsum("ij,j->i", self.critic(observation_buffer), th.from_numpy(np.asarray(self.env.w_rewards)).float())
+                return_buffer = th.einsum("ij,j->i", return_buffer, th.from_numpy(np.asarray(self.env.w_rewards)).float())
                 critic_values = th.squeeze(critic_values)
+                return_buffer = th.squeeze(return_buffer)
 
                 try:
                     state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
@@ -527,7 +534,7 @@ class MindmapPPO:
         self.actor.scheduler.step()
         self.critic.scheduler.step()
 
-        return actor_loss, critic_loss
+        return actor_loss, critic_loss.detach().numpy()
 
     @staticmethod
     def _normalize_tensor(arr):
@@ -607,10 +614,11 @@ class MindmapPPO:
             else:
                 setattr(self, k, v)
 
-    def log_after_train_episode(self, episode, returns):
+    def log_after_train_episode(self, episode, returns, values):
         if self.log_enabled and episode % self.log_interval == 0:
-            self.writer.add_scalar(self.log["train_returns"],
-                                   returns,
+            self.writer.add_scalars(self.log["train_returns"],
+                                    {"return": returns,
+                                     "value": values},
                                    # {"Lifecycle cost": returns[0],
                                    #  "Lifecycle carbon emissions": returns[1],
                                    #  "Total travel time": returns[2]},
@@ -623,6 +631,9 @@ class MindmapPPO:
             self.writer.add_scalar(self.log["lr_critic"],
                                    self.critic.optimizer.param_groups[0]["lr"],
                                    episode)
+            # self.writer.add_scalar(self.log["critic_value"],
+            #                        values,
+            #                        episode)
 
     def log_after_test_episode(self, returns, episode):
         if self.log_enabled and episode % self.log_interval == 0:

@@ -263,8 +263,11 @@ class MindmapPPOMultithread(MindmapPPO):
                     self.actor.save_checkpoint(episode)
                     self.critic.save_checkpoint(episode)
 
-                returns = np.sum(np.einsum('ij,j->i', buff.reward_buffer, self.env.w_rewards * self.env.norm_factor))
-                self.log_after_train_episode(episode, returns)
+                # returns = np.sum(np.einsum('ij,j->i', buff.reward_buffer, self.env.w_rewards * self.env.norm_factor))
+                returns = np.sum(buff.return_buffer[0] * self.env.w_rewards * self.env.norm_factor)
+                values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(), self.env.w_rewards * self.env.norm_factor)
+                # values = self.critic(th.Tensor(self.env.states_nn))
+                self.log_after_train_episode(episode, returns, values)
 
                 # Train the two networks based on the experience of this episode
                 actor_loss, critic_loss = self.train()

@@ -266,31 +266,25 @@ class ThesisEnv(gym.Env):
             for idx, coord in enumerate(self.node_coords):
                 if coord[0] in self.edges[self.components]:
                     node_ids_in_use.append(idx)
-            # plot_graph(np.asarray(self.node_coords)[node_ids_in_use], self.edges[self.components],
-            #            comp_traffic[:, 0], title=f"Timestep {self.time_count}, "
-            #                                      f"Month {'January'}, "
-            #                                      f"closed segments "
-            #                                      f"{np.where(act_real != 0)[0]}", min_max=(0,
-            #                                                                                np.max(comp_traffic[:, 0])))
 
-            # # Plot IRI states
+            metric_to_plot = comp_traffic[:, 0]
+            title_to_plot = f"Timestep {self.time_count}, Month {'January'}, closed segments {np.where(act_real != 0)[0]}"
+            min_max_to_plot = (0, np.max(comp_traffic[:, 0]))
+
+            # Other plot ideas:
+
+            # metric_to_plot = np.zeros(len(self.components))
+            # title_to_plot = f"IRI States - Timestep {self.time_count}, Month {'January'}"
+            # min_max_to_plot = (0, 5)
+            #
+            # metric_to_plot = action
+            # title_to_plot = f"Actions - Timestep {self.time_count}"
+            # min_max_to_plot = (0, 9)
+
             plot_graph(np.asarray(self.node_coords)[node_ids_in_use], self.edges[self.components],
-                       # np.argmax(self.states_iri, axis=1),
-                       np.zeros(len(self.components)),
-                       title=f"IRI States - Timestep"
-                                                                 f" {self.time_count}, "
-                                                            f"Month {'January'}"
-                                                            # f"{np.where(act_real != 0)[0]}"
-                       , min_max=(0, 5))
-            #
-            #
-            # # Plot actions
-            # plot_graph(np.asarray(self.node_coords)[node_ids_in_use], self.edges[self.components],
-            #            action, title=f"Actions - Timestep {self.time_count}, "
-            #                                      f"Month {'January'}", min_max=(0, 9))
+                       metric_to_plot, title_to_plot, min_max=min_max_to_plot)
 
-
-        # # Calculate the total carbon footprint for this step
+        # Calculate the total carbon footprint for this step
         step_cost[1] = - (self._compute_carbon_footprint(comp_traffic) - self.carbon_footprint_init)
 
         # Calculate the total travel time
@@ -309,7 +303,7 @@ class ThesisEnv(gym.Env):
                 [self.states_cci.flatten(), self.states_iri.flatten(),  self.time[:, self.time_count]
                  / self.timesteps])
         else:
-            self.states_nn = np.concatenate([self.states_iri.flatten()])
+            self.states_nn = np.concatenate([self.states_iri.flatten(), [self.time_count]])
 
         # Update the timestep
         self.time_count += 1
@@ -357,7 +351,7 @@ class ThesisEnv(gym.Env):
             self.states_nn = np.concatenate([self.states_cci.flatten(), self.states_iri.flatten(),
                                          self.time[:, self.time_count] / self.timesteps])
         else:
-            self.states_nn = np.concatenate([self.states_iri.flatten()])
+            self.states_nn = np.concatenate([self.states_iri.flatten(), [self.time_count]])
 
 
         for key, link in self.road_network.linkSet.items():

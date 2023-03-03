@@ -471,7 +471,7 @@ def solve(w, prev_run_metadata, reuse_mode):
     ppo.env.w_rewards = [w[0], w[1], 0]  # TODO - only assume 2 objectives
     print(f"Begin execution with weights: {ppo.env.w_rewards}")
 
-    if len(prev_run_metadata) == 0:
+    if len(prev_run_metadata) == 0 or reuse_mode == "no":
         ppo.run_episodes(exec_mode="train")
     else:
         ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
@@ -504,7 +504,7 @@ if __name__ == "__main__":
 
     os.chdir("../../.")
 
-    reuse_mode = "full"
+    reuse_mode = "no"
     m = 2 #number of objectives
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_run_metadata = {}
