@@ -39,8 +39,9 @@ class MindmapRolloutBufferMultithread(MindmapRolloutBuffer):
 class Runner:
     """ Implements a simple single-thread runner class. """
 
-    def __init__(self, controller, exploration_step=1):
+    def __init__(self, controller):
         self.env = gym.make('thesis-env-v1', quiet=True)
+
         self.env.reset()
         self.controller = controller
         # Set up current state and time step
@@ -57,6 +58,10 @@ class Runner:
         return transition_buffer_dicts
 
     def run(self, n_steps, blueprint, transition_buffer_dict=None, i=None):
+
+        # Update weights
+        self.env.w_rewards = self.controller.env.w_rewards
+
         # Initialize buffer for this runner
         my_transition_buffer = copy(blueprint)
         my_transition_buffer.reset_buffer()
@@ -82,7 +87,7 @@ class Runner:
             # Check if the episode has ended. If so, proceed to training
             if done or (cur_timestep == self.env.timesteps - 1):
                 observation_tensor = th.tensor(np.array([observation_new]), dtype=th.float)
-                last_value = 0 if done else self.critic(observation_tensor.reshape(1, -1)).item()
+                last_value = 0 if done else self.controller.critic(observation_tensor.reshape(1, -1)).item()
                 my_transition_buffer.finish_trajectory(last_value, self.env.w_rewards)
                 self.env.reset()
 
@@ -219,7 +224,10 @@ class MindmapPPOMultithread(MindmapPPO):
         self.runner = MultiRunner(self, processes=self.processes, fork_on=self.fork_on) if (self.multirunner == True) \
             else Runner(self)
 
-    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
+    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full", w_rewards=None):
+        if w_rewards:
+            self.env.w_rewards = w_rewards
+
         # Iterate over episodes
         # If we are in training mode
         if (exec_mode == "train") or (exec_mode == "continue_training"):

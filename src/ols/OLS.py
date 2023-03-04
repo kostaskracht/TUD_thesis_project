@@ -468,14 +468,15 @@ def solve(w, prev_run_metadata, reuse_mode):
     writer = ppo.writer
 
     # Setting the new preferences
-    ppo.env.w_rewards = [w[0], w[1], 0]  # TODO - only assume 2 objectives
+    ppo.env.w_rewards = [w[0], w[1], 0.0]  # TODO - only assume 2 objectives
     print(f"Begin execution with weights: {ppo.env.w_rewards}")
 
     if len(prev_run_metadata) == 0 or reuse_mode == "no":
-        ppo.run_episodes(exec_mode="train")
+        ppo.run_episodes(exec_mode="train", w_rewards=[w[0], w[1], 0.0])
     else:
         ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
-                         checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
+                         checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode,
+                         w_rewards=[w[0], w[1], 0.0])
 
     # sys.stdout = sys.__stdout__
 
