@@ -485,8 +485,9 @@ def solve(w, prev_run_metadata, reuse_mode):
     iters = ppo.test_n_epochs
     n_obj = ppo.env.num_objectives
     values = np.zeros((iters, n_obj))
+    ppo.env.reset()
     for i in range(iters):
-        observation = np.zeros_like(ppo.env.states_nn)
+        observation = ppo.env.states_nn
         init_observations = th.tensor(np.array(observation), dtype=th.float)
         values[i] = ppo.critic(init_observations).detach().numpy()
     ppo.runner.close()

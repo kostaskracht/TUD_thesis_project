@@ -90,7 +90,7 @@ class Runner:
                 print(
                     #                     f"{train_phase} episode: {episode}, Total return:"
                     # f"{np.sum(my_transition_buffer.reward_buffer, axis=0) * self.env.norm_factor} "
-                    f" {self.buffer.return_buffer[0] * self.env.norm_factor} "
+                    f" {my_transition_buffer.return_buffer[0] * self.env.norm_factor} "
                     # f" {my_transition_buffer.reward_buffer.sum() * self.env.norm_factor[0]} "
                     f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * my_transition_buffer.counter)))}"
                     # f"Total urgent comps {total_urgent_comps}"

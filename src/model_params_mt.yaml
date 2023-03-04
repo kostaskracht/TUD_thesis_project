@@ -27,12 +27,12 @@ lr_decay_episode_perc: 0.8
 checkpoint_dir: "src/model_weights/"
 checkpoint_interval: 250
 # ppo
-clip_range: 0.1
+clip_range: 0.2
 clip_range_vf: null
 normalize_advantage: True
 normalize_returns: False
-ent_coef: 0.01
-vf_coef: null #0.2
+ent_coef: 0.03
+vf_coef: 0.0001
 target_kl: 0.02
 lam: 0.95
 use_exploration_rate: False
