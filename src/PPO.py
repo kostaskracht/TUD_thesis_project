@@ -335,10 +335,7 @@ class MindmapPPO:
 
         return action, prob, value
 
-    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full", w_rewards=None):
-        if w_rewards:
-            self.env.w_rewards = w_rewards
-
+    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
         # Iterate over episodes
         # If we are in training mode
         if (exec_mode == "train") or (exec_mode == "continue_training"):

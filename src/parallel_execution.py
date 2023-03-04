@@ -224,9 +224,9 @@ class MindmapPPOMultithread(MindmapPPO):
         self.runner = MultiRunner(self, processes=self.processes, fork_on=self.fork_on) if (self.multirunner == True) \
             else Runner(self)
 
-    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full", w_rewards=None):
-        if w_rewards:
-            self.env.w_rewards = w_rewards
+    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
+        # if w_rewards:
+        #     self.env.w_rewards = w_rewards
 
         # Iterate over episodes
         # If we are in training mode
