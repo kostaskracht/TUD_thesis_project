@@ -489,7 +489,8 @@ def solve(w, prev_run_metadata, reuse_mode):
     for i in range(iters):
         observation = ppo.env.states_nn
         init_observations = th.tensor(np.array(observation), dtype=th.float)
-        values[i] = ppo.critic(init_observations).detach().numpy()
+        values[i] = ppo.run_episode(i, train_phase="return_values")
+        # values[i] = ppo.critic(init_observations).detach().numpy()
     ppo.runner.close()
 
     # Keep the best weight and output dir of current run for the next one

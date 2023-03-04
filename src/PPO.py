@@ -411,7 +411,7 @@ class MindmapPPO:
                 self.env.reset()
 
                 # Check where to append the rewards based on the execution mode
-                if train_phase == "learn" or train_phase == "test_train":
+                if train_phase == "learn" or train_phase == "test_train" or train_phase == "return_values":
                     pass
                     # self.total_rewards.append(np.sum(
                     #     self.buffer.reward_buffer) * self.env.norm_factor)
@@ -441,6 +441,9 @@ class MindmapPPO:
             actor_loss, critic_loss = self.train()
 
             self.log_after_training(episode, actor_loss, critic_loss)
+
+        if train_phase == "return_values":
+            return self.buffer.return_buffer[0] * self.env.norm_factor # TODO: Get mean of these as return of OLS!
 
         return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards * self.env.norm_factor)
 
