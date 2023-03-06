@@ -75,8 +75,8 @@ class ThesisEnv(gym.Env):
         # Perform basic network tweaking to achieve more interesting results
         for key, link in self.road_network.linkSet.items():
             self.road_network.linkSet[key].beta = 2
-            self.road_network.linkSet[key].max_capacity *= 0.1
-            self.road_network.linkSet[key].capacity *= 0.1
+            self.road_network.linkSet[key].max_capacity *= 0.05
+            self.road_network.linkSet[key].capacity *= 0.05
             self.road_network.linkSet[key].flow_init = 0
             self.road_network.linkSet[key].max_capacity_init = self.road_network.linkSet[key].max_capacity
 
@@ -621,13 +621,15 @@ class ThesisEnv(gym.Env):
 
         import time
 
-        for monthIdx in range(1, 12):
+        for monthIdx in [5]:
             now = time.time()
             act_ongoing_flag_new = act_durations >= month_intv*(monthIdx + 0.3)
             if np.all(act_ongoing_flag_new == act_ongoing_flag):
                 # print("Same network as previously")
-                TSTT[monthIdx] = TSTT[monthIdx - 1]
-                flows[:, monthIdx] = flows[:, monthIdx - 1]
+                # TSTT[monthIdx] = TSTT[monthIdx - 1]
+                # flows[:, monthIdx] = flows[:, monthIdx - 1]
+                TSTT[monthIdx] = TSTT[0]
+                flows[:, monthIdx] = flows[:, 0]
             elif act_ongoing_flag_new.tobytes() in self.traffic_assignment_solutions.keys():
                 # print("Load solution from buffer")
                 TSTT[monthIdx] = self.traffic_assignment_solutions[act_ongoing_flag_new.tobytes()][0]
@@ -640,6 +642,8 @@ class ThesisEnv(gym.Env):
             # print(f"Time to solve the network: {time.time() - now}")
             act_ongoing_flag = act_ongoing_flag_new
 
+        TSTT[:] = np.mean(TSTT[[0, 5]])
+        flows[:, 2:] = np.mean(flows[:, [0, 5]], axis=1)
         return TSTT, flows
 
     def _execute_traffic_assignment(self, act_ongoing_flag):

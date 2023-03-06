@@ -471,6 +471,10 @@ def solve(w, prev_run_metadata, reuse_mode):
     ppo.env.w_rewards = [w[0], w[1], 0.0]  # TODO - only assume 2 objectives
     print(f"Begin execution with weights: {ppo.env.w_rewards}")
 
+    # if ppo.env.w_rewards[0] == 1.0:
+    #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
+    # elif ppo.env.w_rewards[1] == 1.0:
+    #     return np.array([-1.3583e+03, -0.93151]), {"best_episode": 14200, "output_dir": "src/model_weights/20230305004020_706"}, writer
     if len(prev_run_metadata) == 0 or reuse_mode == "no":
         ppo.run_episodes(exec_mode="train")
     else:
@@ -497,7 +501,7 @@ def solve(w, prev_run_metadata, reuse_mode):
     best_episode = ppo.best_weight
     output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
 
-    return (np.mean(values, axis=0) * ppo.env.norm_factor)[:2], \
+    return (np.mean(values, axis=0) / ppo.env.norm_factor)[:2], \
         {"output_dir": output_dir, "best_episode": best_episode}, \
         writer
         # TODO - Only assume 2 objectives
