@@ -92,14 +92,14 @@ class Runner:
                 self.env.reset()
 
                 act, counts = np.unique(my_transition_buffer.action_buffer[:self.env.timesteps], return_counts=True)
-                print(
-                    #                     f"{train_phase} episode: {episode}, Total return:"
-                    # f"{np.sum(my_transition_buffer.reward_buffer, axis=0) * self.env.norm_factor} "
-                    f" {my_transition_buffer.return_buffer[0] * self.env.norm_factor} "
-                    # f" {my_transition_buffer.reward_buffer.sum() * self.env.norm_factor[0]} "
-                    f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * my_transition_buffer.counter)))}"
-                    # f"Total urgent comps {total_urgent_comps}"
-                )
+                # print(
+                #     #                     f"{train_phase} episode: {episode}, Total return:"
+                #     # f"{np.sum(my_transition_buffer.reward_buffer, axis=0) * self.env.norm_factor} "
+                #     f" {my_transition_buffer.return_buffer[0] * self.env.norm_factor} "
+                #     # f" {my_transition_buffer.reward_buffer.sum() * self.env.norm_factor[0]} "
+                #     f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * my_transition_buffer.counter)))}"
+                #     # f"Total urgent comps {total_urgent_comps}"
+                # )
 
                 # if not transition_buffer_dict:
                 #     transition_buffer = my_transition_buffer
@@ -237,7 +237,7 @@ class MindmapPPOMultithread(MindmapPPO):
 
             if not self.quiet: print(f"Starting training.")
             for episode in range(self.n_epochs):
-                print(f"Episode {episode}:")
+                if not self.quiet: print(f"Episode {episode}:")
                 self.buffer.reset_buffer()
                 transition_buffers_list = self.runner.run(self.env.timesteps, blueprint=self.buffer,
                                                           transition_buffer_dict={"transition_buffer": self.buffer})

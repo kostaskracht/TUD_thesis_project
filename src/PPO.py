@@ -352,7 +352,7 @@ class MindmapPPO:
                     self.critic.save_checkpoint(episode)
 
                 values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(),
-                                self.env.w_rewards * self.env.norm_factor)
+                                self.env.w_rewards)
                 self.log_after_train_episode(episode, returns, values)
 
                 if self.test_interval:
@@ -445,7 +445,7 @@ class MindmapPPO:
         if train_phase == "return_values":
             return self.buffer.return_buffer[0] * self.env.norm_factor # TODO: Get mean of these as return of OLS!
 
-        return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards * self.env.norm_factor)
+        return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards)
 
     def train(self):
         if self.normalize_advantage:
