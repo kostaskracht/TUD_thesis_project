@@ -136,7 +136,8 @@ def linearly_decaying_epsilon(initial_epsilon, decay_period, step, warmup_steps,
 
 def hypervolume(ref_point: np.ndarray, points: List[np.ndarray]) -> float:
     hv = HV(ref_point=ref_point*-1)
-    return hv(np.array(points)*-1)
+    # return hv(np.array(points)*-1)
+    return hv(np.array(points))
 
 def seed_everything(seed: int = 42):
     random.seed(seed)

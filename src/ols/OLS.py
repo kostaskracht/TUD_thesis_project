@@ -2,6 +2,7 @@
 import io
 from itertools import combinations
 from typing import List, Optional
+from datetime import datetime
 
 import seaborn as sns
 import cvxpy as cp
@@ -51,6 +52,11 @@ class OLS:
         for w in extremum_weights: # For each extrema add the extrema with infinite priority as a
             # tuple (priority, weight)
             self.queue.append((float("inf"), w))
+
+        self.timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
+        self.output_dir = f"src/ols/outputs/{self.timestamp}/"
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
 
     # Select the next weight to process. It will be the first weight in the queue
     def next_w(self) -> np.ndarray:
@@ -395,43 +401,56 @@ class OLS:
         colors = ["#E6194B", "#5CB5FF"]
         sns.set_palette(colors)
 
-        x_css, y_css = [], []
-        for i in range(len(ccs)):
-            x_css.append(ccs[i][0])
-            y_css.append(ccs[i][1])
+        # x_css, y_css = [], []
+        # for i in range(len(ccs)):
+        #     x_css.append(ccs[i][0])
+        #     y_css.append(ccs[i][1])
 
-        x, y = [], []
-        for i in range(len(self.ccs)):
-            x.append(self.ccs[i][0])
-            y.append(self.ccs[i][1])
+        if len(self.ccs[0]) > 2:
+            flag_3d = True
+        else:
+            flag_3d = False
 
-        if gpi_agent is not None:
-            x_gpi, y_gpi = [], []
-            for w in ccs_weights:
-                value = policy_evaluation_mo(gpi_agent, eval_env, w, rep=5)
-                x_gpi.append(value[0])
-                y_gpi.append(value[1])
+        # x, y = [], []
+        # for i in range(len(self.ccs)):
+        #     x.append(self.ccs[i][0])
+        #     y.append(self.ccs[i][1])
+
+        ccs_arr = np.stack(self.ccs)
+        x = ccs_arr[:, 0]
+        y = ccs_arr[:, 1]
 
         fig = plt.figure()
-        if gpi_agent is not None:
-            plt.scatter(
-                x_gpi,
-                y_gpi,
-                label="$\Psi^{\mathrm{GPI}}$ (GPI-expanded SF set)",
-                color=colors[0],
+        if flag_3d:
+            z = ccs_arr[:, 2]
+            ax = fig.add_subplot(projection='3d')
+            ax.scatter(
+                x,
+                y,
+                z,
+                label="$\Psi$ (SF set at iteration {})".format(self.iteration),
+                marker="^",
+                color=colors[1],
             )
-        plt.scatter(
-            x,
-            y,
-            label="$\Psi$ (SF set at iteration {})".format(self.iteration),
-            marker="^",
-            color=colors[1],
-        )
+        else:
+            ax = fig.add_subplot()
+            ax.scatter(
+                x,
+                y,
+                label="$\Psi$ (SF set at iteration {})".format(self.iteration),
+                marker="^",
+                color=colors[1],
+            )
+
         # plt.ylim(max(y), min(y))
         # plt.scatter(x_css, y_css, label="CCS", marker="x", color="black")
-        plt.legend(loc="best", fancybox=True, framealpha=0.5)
-        plt.xlabel("$\psi^{\pi}_{1}$ (Lifecycle cost)")
-        plt.ylabel("$\psi^{\pi}_{2}$ (Lifecycle carbon emissions)")
+        ax.legend(loc="best", fancybox=True, framealpha=0.5)
+        ax.set_xlabel("$\psi^{\pi}_{1}$ (Lifecycle cost)")
+        ax.set_ylabel("$\psi^{\pi}_{2}$ (Lifecycle carbon emissions)")
+
+        if flag_3d:
+            ax.set_zlabel("$\psi^{\pi}_{3}$ (Total travel time)")
+
         sns.despine()
         plt.grid(alpha=0.25)
         # plt.tight_layout()
@@ -447,8 +466,8 @@ class OLS:
 
             writer.add_image("CCS", img_arr, dataformats="HWC", global_step=self.iteration)
 
-        plt.savefig(f"src/ols/figs/ccs_dst{self.iteration}.pdf", format="pdf")
-        plt.show()
+        plt.savefig(f"{self.output_dir}/ccs_dst{self.iteration}.pdf", format="pdf")
+        fig.show()
 
         # wb.log(
         #     {
@@ -458,6 +477,21 @@ class OLS:
         #     }
         # )
 
+    def plot_interactive(self):
+        import plotly.express as px
+        import pandas as pd
+
+        labels = ["Lifecycle Cost", "Lifecycle Carbon Emissions", "Total Travel Time"]
+
+        ccs_arr = np.stack(self.ccs)
+        df = pd.DataFrame({labels[0]: ccs_arr[:, 0], labels[1]: ccs_arr[:, 1], labels[2]: ccs_arr[:, 2]})
+
+        fig = px.scatter_3d(df, x=labels[0], y=labels[1], z=labels[2], opacity=0.7)
+
+        # tight layout
+        fig.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+        fig.write_html(f"{self.output_dir}/ccs_dst_interactive.html")
+        fig.show()
 
 def solve(w, prev_run_metadata, reuse_mode):
 
@@ -468,7 +502,10 @@ def solve(w, prev_run_metadata, reuse_mode):
     writer = ppo.writer
 
     # Setting the new preferences
-    ppo.env.w_rewards = [w[0], w[1], 0.0]  # TODO - only assume 2 objectives
+    if len(w) == 2:
+        ppo.env.w_rewards = [w[0], w[1], 0.0]  # TODO - only assume 2 objectives
+    else:
+        ppo.env.w_rewards = w
     print(f"Begin execution with weights: {ppo.env.w_rewards}")
 
     # if ppo.env.w_rewards[0] == 1.0:
@@ -501,7 +538,7 @@ def solve(w, prev_run_metadata, reuse_mode):
     best_episode = ppo.best_weight
     output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
 
-    return (np.mean(values, axis=0) / ppo.env.norm_factor)[:2], \
+    return (np.mean(values, axis=0) / ppo.env.norm_factor)[:len(w)], \
         {"output_dir": output_dir, "best_episode": best_episode}, \
         writer
         # TODO - Only assume 2 objectives
@@ -511,7 +548,7 @@ if __name__ == "__main__":
     os.chdir("../../.")
 
     reuse_mode = "no"
-    m = 2 #number of objectives
+    m = 3 #number of objectives
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_run_metadata = {}
     while not ols.ended():
@@ -525,3 +562,5 @@ if __name__ == "__main__":
         ols.plot_ccs(ols.ccs, ols.ccs_weights, writer=writer)
 
         print("hv:", hypervolume(np.zeros(m), ols.ccs))
+    if len(ols.ccs[0]) > 2:
+        ols.plot_interactive()

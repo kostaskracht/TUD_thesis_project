@@ -11,3 +11,4 @@ tqdm
 tensorboard
 seaborn
 pymoo
+plotly
