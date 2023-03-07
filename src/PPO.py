@@ -443,7 +443,7 @@ class MindmapPPO:
             self.log_after_training(episode, actor_loss, critic_loss)
 
         if train_phase == "return_values":
-            return self.buffer.return_buffer[0] * self.env.norm_factor # TODO: Get mean of these as return of OLS!
+            return self.buffer.return_buffer[0] # TODO: Get mean of these as return of OLS!
 
         return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards)
 

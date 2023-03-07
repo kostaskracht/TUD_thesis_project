@@ -272,8 +272,8 @@ class MindmapPPOMultithread(MindmapPPO):
                     self.critic.save_checkpoint(episode)
 
                 # returns = np.sum(np.einsum('ij,j->i', buff.reward_buffer, self.env.w_rewards * self.env.norm_factor))
-                returns = np.sum(buff.return_buffer[0] * self.env.w_rewards * self.env.norm_factor)
-                values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(), self.env.w_rewards * self.env.norm_factor)
+                returns = np.sum(buff.return_buffer[0] * self.env.w_rewards)
+                values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(), self.env.w_rewards)
                 # values = self.critic(th.Tensor(self.env.states_nn))
                 self.log_after_train_episode(episode, returns, values)
 

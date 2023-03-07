@@ -542,7 +542,7 @@ def solve(w, prev_run_metadata, reuse_mode):
     best_episode = ppo.best_weight
     output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
 
-    return (np.mean(values, axis=0) / ppo.env.norm_factor)[:len(w)], \
+    return np.mean(values, axis=0)[:len(w)], \
         {"output_dir": output_dir, "best_episode": best_episode}, \
         writer
         # TODO - Only assume 2 objectives
