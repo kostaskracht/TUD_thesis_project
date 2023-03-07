@@ -3,6 +3,8 @@ import io
 from itertools import combinations
 from typing import List, Optional
 from datetime import datetime
+import json
+from numpyencoder import NumpyEncoder
 
 import seaborn as sns
 import cvxpy as cp
@@ -57,6 +59,8 @@ class OLS:
         self.output_dir = f"src/ols/outputs/{self.timestamp}/"
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
+            os.makedirs(self.output_dir + "ols")
+            os.makedirs(self.output_dir + "figs")
 
     # Select the next weight to process. It will be the first weight in the queue
     def next_w(self) -> np.ndarray:
@@ -466,7 +470,7 @@ class OLS:
 
             writer.add_image("CCS", img_arr, dataformats="HWC", global_step=self.iteration)
 
-        plt.savefig(f"{self.output_dir}/ccs_dst{self.iteration}.pdf", format="pdf")
+        plt.savefig(f"{self.output_dir}/figs/ccs_dst{self.iteration}.pdf", format="pdf")
         fig.show()
 
         # wb.log(
@@ -548,9 +552,27 @@ if __name__ == "__main__":
     os.chdir("../../.")
 
     reuse_mode = "no"
-    m = 3 #number of objectives
+    continue_execution = True
+    file_to_load = "src/ols/outputs/20230307144052_078/ols/iter_3.json"
+    m = 2 #number of objectives
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_run_metadata = {}
+
+    if continue_execution:
+        input_dict = json.load(open(file_to_load))
+        input_dict["queue"] = [tuple(x) for x in input_dict["queue"]]
+        for key, value in input_dict.items():
+            if isinstance(value, list) and key != "queue":
+                new_val = [np.asarray(xx) for xx in value]
+                input_dict[key] = new_val
+                # input_dict[key] = np.asarray(value)
+        ols.m = input_dict["m"]
+        ols.W = input_dict["W"]
+        ols.ccs = input_dict["ccs"]
+        ols.ccs_weights = input_dict["ccs_weights"]
+        ols.queue = input_dict["queue"]
+        ols.iteration = input_dict["iteration"]
+
     while not ols.ended():
         # Select the weight to process
         w = ols.next_w()
@@ -560,6 +582,17 @@ if __name__ == "__main__":
         ols.add_solution(value, w)
         # Plot the convex coverage set
         ols.plot_ccs(ols.ccs, ols.ccs_weights, writer=writer)
+
+        # Save OLS iteration parameters
+        output_dict = {"m": ols.m,
+                       "W": ols.W,
+                       "ccs": ols.ccs,
+                       "ccs_weights": ols.ccs_weights,
+                       "queue": ols.queue,
+                       "iteration": ols.iteration
+                       }
+        with open(f'{ols.output_dir}ols/iter_{ols.iteration}.json', "w") as f:
+            json.dump(output_dict, f, cls=NumpyEncoder)
 
         print("hv:", hypervolume(np.zeros(m), ols.ccs))
     if len(ols.ccs[0]) > 2:
