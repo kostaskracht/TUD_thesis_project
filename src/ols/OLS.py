@@ -552,7 +552,7 @@ if __name__ == "__main__":
     os.chdir("../../.")
 
     reuse_mode = "no"
-    continue_execution = True
+    continue_execution = False
     file_to_load = "src/ols/outputs/20230307144052_078/ols/iter_3.json"
     m = 2 #number of objectives
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
