@@ -497,7 +497,19 @@ class OLS:
         fig.write_html(f"{self.output_dir}/ccs_dst_interactive.html")
         fig.show()
 
-def solve(w, prev_run_metadata, reuse_mode):
+
+def find_closest_run(prev_runs_metadata, w):
+    max_dot = 0
+    closest_run = list(prev_runs_metadata.keys())[0]
+    for run_timestamp in prev_runs_metadata.keys():
+        cur_dot = np.dot(w, prev_runs_metadata[run_timestamp]["weights"])
+        if max_dot < cur_dot:
+            max_dot = cur_dot
+            closest_run = run_timestamp
+    return prev_runs_metadata[closest_run]
+
+
+def solve(w, prev_runs_metadata, reuse_mode):
 
     # sys.stdout = open(os.devnull, 'w')
     start = time.time()
@@ -516,11 +528,13 @@ def solve(w, prev_run_metadata, reuse_mode):
     #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
     # elif ppo.env.w_rewards[1] == 1.0:
     #     return np.array([-1.3583e+03, -0.93151]), {"best_episode": 14200, "output_dir": "src/model_weights/20230305004020_706"}, writer
-    if len(prev_run_metadata) == 0 or reuse_mode == "no":
+    if len(prev_runs_metadata) == 0 or reuse_mode == "no":
         ppo.run_episodes(exec_mode="train")
     else:
-        ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=prev_run_metadata["output_dir"],
-                         checkpoint_ep=prev_run_metadata["best_episode"], reuse_mode=reuse_mode)
+        closest_run_metadata = find_closest_run(prev_runs_metadata, w)
+        print(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
+        ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=closest_run_metadata["output_dir"],
+                         checkpoint_ep=closest_run_metadata["best_episode"], reuse_mode=reuse_mode)
 
     # sys.stdout = sys.__stdout__
 
@@ -542,8 +556,11 @@ def solve(w, prev_run_metadata, reuse_mode):
     best_episode = ppo.best_weight
     output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
 
+    prev_runs_metadata[ppo.timestamp] = {"output_dir": output_dir, "best_episode": best_episode,
+                            "weights": w}
+
     return np.mean(values, axis=0)[:len(w)], \
-        {"output_dir": output_dir, "best_episode": best_episode}, \
+        prev_runs_metadata, \
         writer
         # TODO - Only assume 2 objectives
 
@@ -551,12 +568,12 @@ if __name__ == "__main__":
 
     os.chdir("../../.")
 
-    reuse_mode = "no"
+    reuse_mode = "full"
     continue_execution = False
     file_to_load = "src/ols/outputs/20230307144052_078/ols/iter_3.json"
     m = 2 #number of objectives
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
-    prev_run_metadata = {}
+    prev_runs_metadata = {}
 
     if continue_execution:
         input_dict = json.load(open(file_to_load))
@@ -578,7 +595,7 @@ if __name__ == "__main__":
         w = ols.next_w()
         print("w:", w)
         # Solve the single objective problem with the given weight
-        value, prev_run_metadata, writer = solve(w, prev_run_metadata, reuse_mode)
+        value, prev_runs_metadata, writer = solve(w, prev_runs_metadata, reuse_mode)
         ols.add_solution(value, w)
         # Plot the convex coverage set
         ols.plot_ccs(ols.ccs, ols.ccs_weights, writer=writer)
