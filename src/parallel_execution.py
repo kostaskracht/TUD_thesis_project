@@ -8,6 +8,9 @@ import threading
 import multiprocessing
 multiprocessing.set_start_method("spawn", force=True)
 
+# th.set_num_interop_threads(1)
+# th.set_num_threads(1)
+
 import thesis_env
 from PPO import MindmapRolloutBuffer, MindmapPPO
 
@@ -53,11 +56,11 @@ class Runner:
         """ Closes the underlying environment. Should always when ending an experiment. """
         self.env.close()
 
-    def run_test(self, num, transition_buffer_dicts):
+    def run_test(self, num, transition_buffer_dicts, metadata_dict):
         transition_buffer_dicts.update({str(np.random.choice(np.arange(10000))): num})
         return transition_buffer_dicts
 
-    def run(self, n_steps, blueprint, transition_buffer_dict=None, i=None):
+    def run(self, n_steps, blueprint, transition_buffer_dict=None, metadata_dict=None, i=None):
 
         # Update weights
         self.env.w_rewards = self.controller.env.w_rewards
@@ -77,7 +80,7 @@ class Runner:
 
             # Perform a step into the environment
 
-            observation_new, reward, done, _ = self.env.step(self.env.actions[copy(action)])
+            observation_new, reward, done, metadata = self.env.step(self.env.actions[copy(action)])
             total_rewards += reward
             # total_urgent_comps += len(self.env.urgent_comps)
 
@@ -92,14 +95,14 @@ class Runner:
                 self.env.reset()
 
                 act, counts = np.unique(my_transition_buffer.action_buffer[:self.env.timesteps], return_counts=True)
-                # print(
-                #     #                     f"{train_phase} episode: {episode}, Total return:"
-                #     # f"{np.sum(my_transition_buffer.reward_buffer, axis=0) * self.env.norm_factor} "
-                #     f" {my_transition_buffer.return_buffer[0] * self.env.norm_factor} "
-                #     # f" {my_transition_buffer.reward_buffer.sum() * self.env.norm_factor[0]} "
-                #     f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * my_transition_buffer.counter)))}"
-                #     # f"Total urgent comps {total_urgent_comps}"
-                # )
+                if not quiet_glob: print(
+                    #                     f"{train_phase} episode: {episode}, Total return:"
+                    # f"{np.sum(my_transition_buffer.reward_buffer, axis=0) * self.env.norm_factor} "
+                    f" {my_transition_buffer.return_buffer[0] * self.env.norm_factor} "
+                    # f" {my_transition_buffer.reward_buffer.sum() * self.env.norm_factor[0]} "
+                    f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * my_transition_buffer.counter)))}"
+                    # f"Total urgent comps {total_urgent_comps}"
+                )
 
                 # if not transition_buffer_dict:
                 #     transition_buffer = my_transition_buffer
@@ -110,14 +113,17 @@ class Runner:
         # transition_buffer_dict.update({"transition_buffer": my_transition_buffer})
         if i:
             transition_buffer_dict[f"transition_buffer_{i}"] = my_transition_buffer
+            metadata_dict[f"metadata_{i}"] = metadata
         else:
             transition_buffer_dict[f"transition_buffer"] = my_transition_buffer
+            metadata_dict[f"metadata"] = metadata
         # return transition_buffer_dict
 
     def run_episode(self, transition_buffer=None, trim=True, return_dict=None):
         """ Runs one episode in the environemnt.
             Returns a dictionary containing the transition_buffer and episode statistics. """
         return self.run(0, transition_buffer)
+
 
 def run_test(num, transition_buffer_dicts):
     transition_buffer_dicts[str(np.random.choice(np.arange(10000)))] = num
@@ -186,20 +192,23 @@ class MultiRunner:
 
         if self.fork_on == "thread":
             transition_buffer_dicts = [{} for _ in self.runners]
-            self.fork_thread(target=Runner.run, common_args=(n_steps, blueprint), specific_args=(transition_buffer_dicts,))
+            metadata_dicts = [{} for _ in self.runners]
+            self.fork_thread(target=Runner.run, common_args=(n_steps, blueprint), specific_args=(transition_buffer_dicts, metadata_dicts))
             # self.fork(target=Runner.run, common_args=(n_steps, transition_buffer))
         elif self.fork_on == "process":
             manager = multiprocessing.Manager()
             transition_buffer_dicts = manager.dict()
+            metadata_dicts = manager.dict()
             # self.fork_process(target=Runner.run, common_args=(n_steps, blueprint),
             #                   specific_args=(transition_buffer_dicts,))
             # self.fork_process(target=Runner.run_test, common_args=(5, transition_buffer_dicts,))
-            self.fork_process(target=Runner.run, common_args=(n_steps, blueprint, transition_buffer_dicts,))
+            self.fork_process(target=Runner.run, common_args=(n_steps, blueprint, transition_buffer_dicts, metadata_dicts))
             transition_buffer_dicts = [{"transition_buffer": val} for val in transition_buffer_dicts.values()]
+            metadata_dicts = [{"metadata": val} for val in metadata_dicts.values()]
         else:
             raise TypeError("Wrong fork_on setting. Available options are 'thread' and 'process'")
 
-        return transition_buffer_dicts
+        return transition_buffer_dicts, metadata_dicts
 
 
 class MindmapPPOMultithread(MindmapPPO):
@@ -210,6 +219,8 @@ class MindmapPPOMultithread(MindmapPPO):
     def __init__(self, param_file="src/model_params_mt.yaml", quiet=False):
 
         super().__init__(param_file, quiet)
+        global quiet_glob
+        quiet_glob = quiet
 
         if not self.multirunner:
             self.processes = 1
@@ -239,7 +250,7 @@ class MindmapPPOMultithread(MindmapPPO):
             for episode in range(self.n_epochs):
                 if not self.quiet: print(f"Episode {episode}:")
                 self.buffer.reset_buffer()
-                transition_buffers_list = self.runner.run(self.env.timesteps, blueprint=self.buffer,
+                transition_buffers_list, metadata_dicts_list = self.runner.run(self.env.timesteps, blueprint=self.buffer,
                                                           transition_buffer_dict={"transition_buffer": self.buffer})
 
                 if isinstance(transition_buffers_list, dict):
@@ -275,7 +286,7 @@ class MindmapPPOMultithread(MindmapPPO):
                 returns = np.sum(buff.return_buffer[0] * self.env.w_rewards)
                 values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(), self.env.w_rewards)
                 # values = self.critic(th.Tensor(self.env.states_nn))
-                self.log_after_train_episode(episode, returns, values)
+                self.log_after_train_episode(episode, returns, values, metadata_dicts_list[-1])
 
                 # Train the two networks based on the experience of this episode
                 actor_loss, critic_loss = self.train()

@@ -297,7 +297,12 @@ class MindmapPPO:
                     "lr_critic": "Critic/Critic Learning Rate over epochs",
                     "actor_loss": "Actor/Actor Loss over epochs",
                     "critic_loss": "Critic/Critic Loss over epochs",
-                    "critic_value": "Critic/Value"}
+                    "critic_value": "Critic/Value",
+                    "lifecycle_cost": "Rewards/Lifecycle Cost",
+                    "carbon_emissions": "Rewards/Carbon Emission",
+                    "convenience": "Rewards/Passenger comfort"
+                    }
+
 
         self.log_at_start()
 
@@ -361,7 +366,7 @@ class MindmapPPO:
                         test_rewards = []
                         for test_episode in range(self.test_n_epochs):
                             test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
-                        self.total_rewards_test.append(np.mean(test_rewards))
+                        if self.save_in_files: self.total_rewards_test.append(np.mean(test_rewards))
                         self.log_after_test_episode(np.mean(test_rewards), episode)
 
         elif exec_mode == "test":
@@ -418,9 +423,9 @@ class MindmapPPO:
                     # # self.total_actions.append(self.buffer.action_buffer)
                 elif train_phase == "test":
                     pass
-                    self.total_rewards_test.append(
+                    if self.save_in_files: self.total_rewards_test.append(
                         np.einsum("ij,j->ij", self.buffer.reward_buffer, self.env.norm_factor))
-                    self.total_actions_test.append(self.buffer.action_buffer)
+                    if self.save_in_files: self.total_actions_test.append(self.buffer.action_buffer)
                 else:
                     raise ValueError(
                         f"Execution mode {train_phase} not relevant. Available options are learn and test.")
@@ -608,7 +613,7 @@ class MindmapPPO:
             else:
                 setattr(self, k, v)
 
-    def log_after_train_episode(self, episode, returns, values):
+    def log_after_train_episode(self, episode, returns, values, metadata_dict):
         if self.log_enabled and episode % self.log_interval == 0:
             self.writer.add_scalars(self.log["train_returns"],
                                     {"return": returns,
@@ -625,6 +630,20 @@ class MindmapPPO:
             self.writer.add_scalar(self.log["lr_critic"],
                                    self.critic.optimizer.param_groups[0]["lr"],
                                    episode)
+
+            self.writer.add_scalars(self.log["lifecycle_cost"],
+                                    metadata_dict["metadata"]["cost_components"],
+                                    episode)
+
+            self.writer.add_scalars(self.log["carbon_emissions"],
+                                    metadata_dict["metadata"]["carbon_components"],
+                                    episode
+                                    )
+
+            self.writer.add_scalars(self.log["convenience"],
+                                    metadata_dict["metadata"]["convenience_components"],
+                                    episode
+                                    )
             # self.writer.add_scalar(self.log["critic_value"],
             #                        values,
             #                        episode)
@@ -685,9 +704,9 @@ if __name__ == "__main__":
     # for checkpoint in range(0, 20000, 250):
     #     f.write(f"Checking weights {checkpoint}\n")
     ppo = MindmapPPO()
-    ppo.run_episodes(exec_mode="train")
-    # ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20230222162100_0290/",
-    #                  checkpoint_ep=18500)
+    # ppo.run_episodes(exec_mode="train")
+    ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20230308215135_416/",
+                     checkpoint_ep=4250)
     # ppo.run_episodes(exec_mode="continue_training",checkpoint_dir="src/model_weights/20230228181434_311/",
     #                  checkpoint_ep=199)
     # print(f"Mean of test rewards: {np.mean(ppo.total_rewards_test)}\n")

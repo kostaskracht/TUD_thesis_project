@@ -46,5 +46,6 @@ total_rewards: True
 # log
 log_enabled: True
 log_interval: 200
+save_in_files: False
 
  

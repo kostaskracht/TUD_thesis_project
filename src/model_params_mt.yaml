@@ -3,7 +3,7 @@ gamma: 0.99
 quiet: True
 multirunner: True
 fork_on: "thread" # "thread" or "process"
-processes: 4
+processes: 8
 n_epochs: 20000
 seed: 123
 device: "cpu"
@@ -14,7 +14,7 @@ policy: null # Unused for now
 actor_arch: [80, "relu", 80, "relu"]
 critic_arch: [80, "relu", 80, "relu"]
 max_grad_norm: null # Unused for now
-batch_size: 20
+batch_size: 40
 train_iters: 50
 optimizer_act: "Adam"
 lr_act: 1.0e-3
@@ -32,8 +32,8 @@ clip_range_vf: null
 normalize_advantage: True
 normalize_returns: False
 ent_coef: 0.03
-vf_coef: 0.0001
-target_kl: 0.02
+vf_coef: 0.01
+target_kl: 0.025
 lam: 0.95
 use_exploration_rate: False
 #plot
@@ -48,3 +48,4 @@ total_rewards: True
 # log
 log_enabled: True
 log_interval: 200
+save_in_files: False

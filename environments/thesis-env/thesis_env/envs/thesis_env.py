@@ -80,15 +80,21 @@ class ThesisEnv(gym.Env):
             self.road_network.linkSet[key].flow_init = 0
             self.road_network.linkSet[key].max_capacity_init = self.road_network.linkSet[key].max_capacity
 
+        for key, trip in self.road_network.tripSet.items():
+            self.road_network.tripSet[key].demand *= 2
+
         # Reset the environment
         self.reset()
         self.time_count = 0
 
         # Compute the travel time and traffic flows for the initial network
-        self.TSTT_init, flows_init = self._execute_traffic_assignment(np.zeros_like(self.components, dtype=bool))
+        # self.TSTT_init, self.flows_init = self._execute_traffic_assignment(np.zeros_like(self.components, dtype=bool))
+        self.TSTT_init, self.flows_init = self._traffic_assignment(np.zeros_like(self.components, dtype=int),
+                                                                   np.ones_like(self.components, dtype=bool))
 
         # Compute the carbon footprint of the initial network
-        self.carbon_footprint_init = self._compute_carbon_footprint(np.repeat([flows_init], repeats=12, axis=0).T)
+        # self.carbon_footprint_init = self._compute_carbon_footprint(np.repeat([self.flows_init], repeats=12, axis=0).T)
+        self.carbon_footprint_init, _ = self._compute_carbon_footprint(self.flows_init)
 
         # Initialize the road network flows with the initial ones, for faster convergence
         for key, link in self.road_network.linkSet.items():
@@ -207,15 +213,15 @@ class ThesisEnv(gym.Env):
                 if coord[0] in self.edges[self.components]:
                     node_ids_in_use.append(idx)
 
-            metric_to_plot = comp_traffic[:, 0]
-            title_to_plot = f"Timestep {self.time_count}, Month {'January'}, closed segments {np.where(act_init != 0)[0]}"
-            min_max_to_plot = (0, np.max(comp_traffic[:, 0]))
+            # metric_to_plot = comp_traffic[:, 0]
+            # title_to_plot = f"Timestep {self.time_count}, Month {'January'}, closed segments {np.where(act_init != 0)[0]}"
+            # min_max_to_plot = (0, np.max(comp_traffic[:, 0]))
 
             # Other plot ideas:
 
-            # metric_to_plot = np.zeros(len(self.components))
-            # title_to_plot = f"IRI States - Timestep {self.time_count}, Month {'January'}"
-            # min_max_to_plot = (0, 5)
+            metric_to_plot = np.zeros(len(self.components))
+            title_to_plot = f"IRI States - Timestep {self.time_count}, Month {'January'}"
+            min_max_to_plot = (0, 5)
             #
             # metric_to_plot = action
             # title_to_plot = f"Actions - Timestep {self.time_count}"
@@ -225,10 +231,23 @@ class ThesisEnv(gym.Env):
                        metric_to_plot, title_to_plot, min_max=min_max_to_plot)
 
         # Calculate the total carbon footprint for this step
-        step_cost[1] = - (self._compute_carbon_footprint(comp_traffic) - self.carbon_footprint_init)
+        carbon_emissions, emissions_from_condition_perc = self._compute_carbon_footprint(comp_traffic) # emissions are negative
+        carbon_emissions_from_actions = self._compute_carbon_footprint_actions(action)
+
+        # Log everything
+        # Cost components are logged under cost calculation method
+        self.carbon_components["rerouting"] += carbon_emissions/(1 + emissions_from_condition_perc) - self.carbon_footprint_init
+        self.carbon_components["condition"] += carbon_emissions * emissions_from_condition_perc
+        self.carbon_components["actions"] += carbon_emissions_from_actions
+        self.carbon_components["total"] += carbon_emissions - self.carbon_footprint_init + carbon_emissions_from_actions
+
+        self.convenience_components["travel_time"] += - (np.sum(total_travel_time) - np.sum(self.TSTT_init))
+
+        # Calculate costs for carbon emissions
+        step_cost[1] = (carbon_emissions - self.carbon_footprint_init) + carbon_emissions_from_actions
 
         # Calculate the total travel time
-        step_cost[2] = - (np.sum(total_travel_time) - self.TSTT_init*12)
+        step_cost[2] = - (np.sum(total_travel_time) - np.sum(self.TSTT_init))
 
         # Updating the ongoing actions
         self.act_ongoing = act_ongoing_tmp
@@ -261,7 +280,10 @@ class ThesisEnv(gym.Env):
                                                                      "costs": step_cost,
                                                                      "states_iri": self.states_iri,
                                                                      # "traffic": comp_traffic,
-                                                                     "urgent_components": self.urgent_comps}
+                                                                     "urgent_components": self.urgent_comps,
+                                                                     "cost_components": self.cost_components,
+                                                                     "carbon_components": self.carbon_components,
+                                                                     "convenience_components": self.convenience_components}
 
     def reset(self, *, seed=None, options=None, ):
         """
@@ -294,6 +316,12 @@ class ThesisEnv(gym.Env):
 
         for key, link in self.road_network.linkSet.items():
             self.road_network.linkSet[key].flow = self.road_network.linkSet[key].flow_init
+
+        # Logging
+        self.cost_components = {"maintenance": 0, "inspection": 0, "mobilization": 0, "urgent_actions": 0, 'total': 0}
+        self.carbon_components = {"rerouting": 0, "condition": 0, "actions": 0, 'total': 0}
+        self.convenience_components = {"travel_time": 0}
+
         return
 
     def render(self, mode='human', close=False):
@@ -437,6 +465,13 @@ class ThesisEnv(gym.Env):
         # Add crew cost. Currently, the crew cost is the 50% of the mean action cost
         cost_action_crew = np.sum(self.c_mai_crew[np.unique(action)])
         cost_ins_crew = np.sum(self.c_ins_crew[np.unique(action)])
+
+        # Log the costs
+        self.cost_components["maintenance"] += cost_action - cost_action_urgent
+        self.cost_components["inspection"] += cost_ins
+        self.cost_components["mobilization"] += cost_action_crew + cost_ins_crew
+        self.cost_components["urgent_actions"] += cost_action_urgent
+        self.cost_components["total"] += cost_action + cost_ins + cost_action_crew + cost_ins_crew
 
         cost_action += cost_action_crew
         cost_ins += cost_ins_crew
@@ -615,21 +650,22 @@ class ThesisEnv(gym.Env):
 
         # Execute traffic assignment for the first month
         month_intv = 30
-        act_ongoing_flag = act_durations >= month_intv*(0 + 0.3)
+        # act_ongoing_flag = act_durations >= month_intv*(0 + 0.5)
 
-        TSTT[0], flows[:, 0] = self._execute_traffic_assignment(act_ongoing_flag)
+        # TSTT[0], flows[:, 0] = self._execute_traffic_assignment(act_ongoing_flag)
 
         import time
-
-        for monthIdx in [5]:
+        months_to_check = [0, 6]
+        act_ongoing_flag = np.zeros_like(act_durations, dtype=bool)
+        for monthIdx in months_to_check:
             now = time.time()
-            act_ongoing_flag_new = act_durations >= month_intv*(monthIdx + 0.3)
-            if np.all(act_ongoing_flag_new == act_ongoing_flag):
+            act_ongoing_flag_new = act_durations >= month_intv*(monthIdx + 0.5)
+            if np.all(act_ongoing_flag_new == act_ongoing_flag) and monthIdx != 0:
                 # print("Same network as previously")
                 # TSTT[monthIdx] = TSTT[monthIdx - 1]
                 # flows[:, monthIdx] = flows[:, monthIdx - 1]
-                TSTT[monthIdx] = TSTT[0]
-                flows[:, monthIdx] = flows[:, 0]
+                TSTT[monthIdx] = TSTT[months_to_check[months_to_check.index(monthIdx) - 1]]
+                flows[:, monthIdx] = flows[:, months_to_check[months_to_check.index(monthIdx) - 1]]
             elif act_ongoing_flag_new.tobytes() in self.traffic_assignment_solutions.keys():
                 # print("Load solution from buffer")
                 TSTT[monthIdx] = self.traffic_assignment_solutions[act_ongoing_flag_new.tobytes()][0]
@@ -642,8 +678,9 @@ class ThesisEnv(gym.Env):
             # print(f"Time to solve the network: {time.time() - now}")
             act_ongoing_flag = act_ongoing_flag_new
 
-        TSTT[:] = np.mean(TSTT[[0, 5]])
-        flows[:, 2:] = np.mean(flows[:, [0, 5]], axis=1)
+        TSTT[:] = np.mean(TSTT[months_to_check])
+        flows = np.tile(np.mean(flows[:, months_to_check], axis=1), (12, 1)).T
+        # flows = np.mean(flows[:, [0,5]], axis=1)
         return TSTT, flows
 
     def _execute_traffic_assignment(self, act_ongoing_flag):
@@ -686,18 +723,23 @@ class ThesisEnv(gym.Env):
             for idx, x in enumerate(self.road_network.linkSet.keys()):
                 flow[idx] = self.road_network.linkSet[x].flow
 
-        return TSTT, flow
+        return TSTT*30, flow*30 # Multiply x30 to get the monthly trips and travel time
 
     def _compute_carbon_footprint(self, comp_traffic):
         # Compute the average carbon footprint based on the CO2e emissions and vehicle types
         roughness_per_segment = np.array(self.iri_values)[np.argmax(self.states_iri, axis=1)]
-        extra_consumption_per_segment_per_type = np.reshape(roughness_per_segment, (-1, 1)) @ np.reshape(self.carbon_emissions_iri_a, (1, -1)) + np.tile(self.carbon_emissions_iri_b, (self.num_components, 1))
-        extra_consumption_per_segment_per_type = np.clip(extra_consumption_per_segment_per_type,
-                                                         a_min=0, a_max=None)
+        extra_consumption_per_segment_per_type = (np.reshape(roughness_per_segment, (-1, 1)) @ np.reshape(self.carbon_emissions_iri_a, (1, -1)) + np.tile(self.carbon_emissions_iri_b, (self.num_components, 1)))/100
+        extra_consumption_per_segment_per_type = np.clip(extra_consumption_per_segment_per_type, a_min=0, a_max=None) + 1
         average_emissions_per_segment = extra_consumption_per_segment_per_type @ (np.asarray(self.transport_types) * np.asarray(self.carbon_foot_by_type))
 
-        return np.sum(self.comp_len[self.components] * np.sum(comp_traffic, axis=1) *
-                      average_emissions_per_segment)
+        emissions_from_condition_perc = np.dot(
+            np.dot(extra_consumption_per_segment_per_type, self.transport_types),
+            self.comp_len[self.components]) / np.sum(self.comp_len[self.components]) - 1
+
+        return - np.sum(self.comp_len[self.components] * np.sum(comp_traffic, axis=1) * average_emissions_per_segment), emissions_from_condition_perc
+
+    def _compute_carbon_footprint_actions(self,action):
+        return -np.sum(np.array(self.action_carbon_emissions)[action] * self.comp_len[self.components]) * 1000 * 3.5 * 2
 
     def _filter_components_actions(self):
         # Filter specific components
