@@ -256,15 +256,15 @@ class ThesisEnv(gym.Env):
         if self.time_count == self.time.shape[1] - 1:
             done = True
 
+        # Update the timestep
+        self.time_count += 1
+
         # Prepare the new states that will be fed to the nn, by adding the normalized deterioration rates
         if self.use_cci_state:
             self.states_nn = np.concatenate(
                 [self.states_cci.flatten(), self.states_iri.flatten(),  self.time[:, self.time_count] / self.timesteps])
         else:
             self.states_nn = np.concatenate([self.states_iri.flatten(), [self.time_count]])
-
-        # Update the timestep
-        self.time_count += 1
 
         # Log results
         if not self.quiet:

@@ -77,9 +77,10 @@ class Runner:
             observation = self.env.states_nn
             # Sample action from actor, and value from critic
             action, log_prob, value = self.controller.sample_action(self.env.states_nn, ep=0)
+            # action, log_prob = self.controller.actor.sample_action_actor(self.env.states_nn, ep=0)
+            # value = self.controller.critic.sample_action_critic(self.env.states_nn, ep=0, w_rewards=self.env.w_rewards)
 
             # Perform a step into the environment
-
             observation_new, reward, done, metadata = self.env.step(self.env.actions[copy(action)])
             total_rewards += reward
             # total_urgent_comps += len(self.env.urgent_comps)
@@ -220,7 +221,7 @@ class MindmapPPOMultithread(MindmapPPO):
 
         super().__init__(param_file, quiet)
         global quiet_glob
-        quiet_glob = quiet
+        quiet_glob = self.quiet
 
         if not self.multirunner:
             self.processes = 1
