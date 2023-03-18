@@ -20,8 +20,9 @@ import gym
 import torch as th
 
 import sys
-sys.path.append('../')
-from parallel_execution import MindmapPPOMultithread
+# sys.path.append('/')
+from parallel_execution_new import MindmapPPOMultithread
+from Benchmarks import Benchmarks
 
 import time
 import os
@@ -515,26 +516,36 @@ def solve(w, prev_runs_metadata, reuse_mode):
     start = time.time()
 
     ppo = MindmapPPOMultithread(quiet=True)
+    benchmarks = Benchmarks()
+
+
     writer = ppo.writer
 
     # Setting the new preferences
     if len(w) == 2:
         ppo.env.w_rewards = [w[0], w[1], 0.0]  # TODO - only assume 2 objectives
+        benchmarks.env.w_rewards = [w[0], w[1], 0.0]
     else:
         ppo.env.w_rewards = w
+        benchmarks.env.w_rewards = w
     print(f"Begin execution with weights: {ppo.env.w_rewards}")
+
+    print(f"Executing CBM:")
+    cbm_value = benchmarks.execute_benchmarks()
+    print(f"CMB return for weights: {ppo.env.w_rewards} is {cbm_value}")
 
     # if ppo.env.w_rewards[0] == 1.0:
     #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
     # elif ppo.env.w_rewards[1] == 1.0:
     #     return np.array([-1.3583e+03, -0.93151]), {"best_episode": 14200, "output_dir": "src/model_weights/20230305004020_706"}, writer
     if len(prev_runs_metadata) == 0 or reuse_mode == "no":
-        ppo.run_episodes(exec_mode="train")
+        ppo.run(exec_mode="train", max_val=cbm_value)
     else:
         closest_run_metadata = find_closest_run(prev_runs_metadata, w)
         print(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
-        ppo.run_episodes(exec_mode="continue_training", checkpoint_dir=closest_run_metadata["output_dir"],
-                         checkpoint_ep=closest_run_metadata["best_episode"], reuse_mode=reuse_mode)
+        ppo.run(exec_mode="continue_training", checkpoint=(closest_run_metadata["output_dir"],
+                                                           closest_run_metadata["best_episode"]), reuse_mode=reuse_mode,
+                max_val=cbm_val)
 
     # sys.stdout = sys.__stdout__
 
@@ -566,7 +577,7 @@ def solve(w, prev_runs_metadata, reuse_mode):
 
 if __name__ == "__main__":
 
-    os.chdir("../../.")
+    os.chdir("../..")
 
     reuse_mode = "full"
     continue_execution = False

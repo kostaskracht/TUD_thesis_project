@@ -39,10 +39,10 @@ class ThesisEnv(gym.Env):
         self._filter_components_actions()
 
         # Define the actions space
-        self.action_space = spaces.MultiDiscrete([(self.num_actions)]*self.num_components)
+        self.action_space = spaces.MultiDiscrete([(self.num_actions)] * self.num_components)
 
         # Define the state space
-        self.observation_space = spaces.Discrete(self.num_states_iri*self.num_components)
+        self.observation_space = spaces.Discrete(self.num_states_iri * self.num_components)
 
         # Compute the total cost per action
         # self.c_act = self.compute_action_cost() # Unused for now
@@ -103,9 +103,10 @@ class ThesisEnv(gym.Env):
         # Compute normalization factors if they are not set in the yaml file
         if not self.norm_factor:
             self.norm_factor = np.zeros(self.num_objectives)
-            self.norm_factor[0] = np.sum(np.max(np.abs(self.c_mai + self.c_ins)[self.actions], axis=1))/5
+            self.norm_factor[0] = np.sum(np.max(np.abs(self.c_mai + self.c_ins)[self.actions], axis=1)) / 5
             avg_carbon = np.sum(np.asarray(self.transport_types) * np.asarray(self.carbon_foot_by_type))
-            self.norm_factor[1] = np.sum(self.comp_len[self.components] * self.capacity[self.components]) * avg_carbon * 12
+            self.norm_factor[1] = np.sum(
+                self.comp_len[self.components] * self.capacity[self.components]) * avg_carbon * 12
             self.norm_factor[2] = np.sum(self.comp_len[self.components] * self.capacity[self.components]) * 10 * 12
         else:
             self.norm_factor = np.asarray(self.norm_factor)
@@ -165,7 +166,7 @@ class ThesisEnv(gym.Env):
             # If the component is not active, update the states with "do nothing" transition matrix
             elif (not is_comp_active[idx]) and (not self.act_ongoing[idx]):
                 self._update_states(idx, self.transitions["plain"])
-                cur_action = 0 # if the component is not active, assume that the action is "do nothing"
+                cur_action = 0  # if the component is not active, assume that the action is "do nothing"
 
             # Perform inference (belief update) if:
             # - There is no ongoing action
@@ -174,7 +175,7 @@ class ThesisEnv(gym.Env):
                 if is_comp_active[idx]:
                     cur_action_fin = cur_action
                 else:
-                    cur_action_fin = 0 # If component is not active, then perform update with do nothing
+                    cur_action_fin = 0  # If component is not active, then perform update with do nothing
 
                 self.states_iri[idx] = self._perform_inference(cur_action_fin, self.states_iri[idx],
                                                                self.obs_probs_iri[idx])
@@ -231,17 +232,22 @@ class ThesisEnv(gym.Env):
                        metric_to_plot, title_to_plot, min_max=min_max_to_plot)
 
         # Calculate the total carbon footprint for this step
-        carbon_emissions, emissions_from_condition_perc = self._compute_carbon_footprint(comp_traffic) # emissions are negative
+        carbon_emissions, emissions_from_condition_perc = self._compute_carbon_footprint(
+            comp_traffic)  # emissions are negative
         carbon_emissions_from_actions = self._compute_carbon_footprint_actions(action)
 
         # Log everything
         # Cost components are logged under cost calculation method
-        self.carbon_components["rerouting"] += carbon_emissions/(1 + emissions_from_condition_perc) - self.carbon_footprint_init
-        self.carbon_components["condition"] += carbon_emissions * emissions_from_condition_perc
-        self.carbon_components["actions"] += carbon_emissions_from_actions
-        self.carbon_components["total"] += carbon_emissions - self.carbon_footprint_init + carbon_emissions_from_actions
+        self.carbon_components["rerouting"] += self.gamma ** self.time_count * (
+                    carbon_emissions / (1 + emissions_from_condition_perc) - self.carbon_footprint_init)
+        self.carbon_components[
+            "condition"] += self.gamma ** self.time_count * carbon_emissions * emissions_from_condition_perc
+        self.carbon_components["actions"] += self.gamma ** self.time_count * carbon_emissions_from_actions
+        self.carbon_components["total"] += self.gamma ** self.time_count * (
+                    carbon_emissions - self.carbon_footprint_init + carbon_emissions_from_actions)
 
-        self.convenience_components["travel_time"] += - (np.sum(total_travel_time) - np.sum(self.TSTT_init))
+        self.convenience_components["travel_time"] -= self.gamma ** self.time_count * (
+                    np.sum(total_travel_time) - np.sum(self.TSTT_init))
 
         # Calculate costs for carbon emissions
         step_cost[1] = (carbon_emissions - self.carbon_footprint_init) + carbon_emissions_from_actions
@@ -262,7 +268,7 @@ class ThesisEnv(gym.Env):
         # Prepare the new states that will be fed to the nn, by adding the normalized deterioration rates
         if self.use_cci_state:
             self.states_nn = np.concatenate(
-                [self.states_cci.flatten(), self.states_iri.flatten(),  self.time[:, self.time_count] / self.timesteps])
+                [self.states_cci.flatten(), self.states_iri.flatten(), self.time[:, self.time_count] / self.timesteps])
         else:
             self.states_nn = np.concatenate([self.states_iri.flatten(), [self.time_count]])
 
@@ -276,14 +282,14 @@ class ThesisEnv(gym.Env):
             self._visualize_states(0, action, save=True)
 
         return self.states_nn, step_cost / self.norm_factor, done, \
-                                                                    {"actions": action,
-                                                                     "costs": step_cost,
-                                                                     "states_iri": self.states_iri,
-                                                                     # "traffic": comp_traffic,
-                                                                     "urgent_components": self.urgent_comps,
-                                                                     "cost_components": self.cost_components,
-                                                                     "carbon_components": self.carbon_components,
-                                                                     "convenience_components": self.convenience_components}
+            {"actions": action,
+             "costs": step_cost,
+             "states_iri": self.states_iri,
+             # "traffic": comp_traffic,
+             "urgent_components": self.urgent_comps,
+             "cost_components": self.cost_components,
+             "carbon_components": self.carbon_components,
+             "convenience_components": self.convenience_components}
 
     def reset(self, *, seed=None, options=None, ):
         """
@@ -309,10 +315,9 @@ class ThesisEnv(gym.Env):
 
         if self.use_cci_state:
             self.states_nn = np.concatenate([self.states_cci.flatten(), self.states_iri.flatten(),
-                                         self.time[:, self.time_count] / self.timesteps])
+                                             self.time[:, self.time_count] / self.timesteps])
         else:
             self.states_nn = np.concatenate([self.states_iri.flatten(), [self.time_count]])
-
 
         for key, link in self.road_network.linkSet.items():
             self.road_network.linkSet[key].flow = self.road_network.linkSet[key].flow_init
@@ -377,7 +382,7 @@ class ThesisEnv(gym.Env):
         act_init = action
         is_component_active = np.ones(self.num_components, dtype=bool)
         cost_action = sum(self.c_mai[self.components, action])
-        cost_ins = sum(self.gamma*self.c_ins[self.components, action])
+        cost_ins = sum(self.gamma * self.c_ins[self.components, action])
 
         cost_action_crew = np.sum(self.c_mai_crew[np.unique(action)])
         cost_ins_crew = np.sum(self.c_ins_crew[np.unique(action)])
@@ -395,33 +400,33 @@ class ThesisEnv(gym.Env):
         # Check if any component is in terminal state
         if self.use_cci_state:
             state_cci_inf = np.array([np.random.choice(range(self.num_states_cci), replace=True,
-                                                 p=state_probs) for state_probs in self.states_cci])
-            action[state_cci_inf == self.num_states_cci - 1] = 9 # replacement if CCI state is terminal
+                                                       p=state_probs) for state_probs in self.states_cci])
+            action[state_cci_inf == self.num_states_cci - 1] = 9  # replacement if CCI state is terminal
 
         state_iri_inf = np.array([np.random.choice(range(self.num_states_iri), replace=True,
-                                             p=state_probs) for state_probs in self.states_iri])
-        action[state_iri_inf == self.num_states_iri - 1] = 9 # replacement if IRI state is terminal
+                                                   p=state_probs) for state_probs in self.states_iri])
+        action[state_iri_inf == self.num_states_iri - 1] = 9  # replacement if IRI state is terminal
 
         if self.use_cci_state:
             self.urgent_comps = np.where((state_iri_inf == self.num_states_iri - 1) | (state_cci_inf ==
-                                                                         self.num_states_cci - 1))[0]
+                                                                                       self.num_states_cci - 1))[0]
         else:
             self.urgent_comps = np.where(state_iri_inf == self.num_states_iri - 1)[0]
 
         # Compute the cost of urgent actions. We assume that these actions cost 50% more
-        cost_action_urgent = sum(self.c_mai[self.urgent_comps,action[self.urgent_comps]]) * 1.5
-        cost_ins_urgent = self.gamma*sum(self.c_ins[self.urgent_comps,action[self.urgent_comps]]) * 1.5
+        cost_action_urgent = sum(self.c_mai[self.urgent_comps, action[self.urgent_comps]]) * 1.5
+        cost_ins_urgent = self.gamma * sum(self.c_ins[self.urgent_comps, action[self.urgent_comps]]) * 1.5
 
-        if self.limit_budget: # TODO - Revisit budget limit after the Thesis!
-            if self.budget_lim - self.episode_cost < 0: # Check if we have budget remaining
+        if self.limit_budget:  # TODO - Revisit budget limit after the Thesis!
+            if self.budget_lim - self.episode_cost < 0:  # Check if we have budget remaining
                 comp_active = []
             else:
                 comp_active_cand = [i for i in range(self.num_components) if i not in np.where(
                     self.act_ongoing)[0]]
                 comp_active_cand = [i for i in comp_active_cand if i not in self.urgent_comps]
 
-                cost_action = sum(self.c_mai[comp_active_cand,action[comp_active_cand]])
-                cost_ins = self.gamma*sum(self.c_ins[comp_active_cand,action[comp_active_cand]])
+                cost_action = sum(self.c_mai[comp_active_cand, action[comp_active_cand]])
+                cost_ins = self.gamma * sum(self.c_ins[comp_active_cand, action[comp_active_cand]])
 
                 step_cost_potential = - cost_action - cost_ins
                 step_cost_potential_urgent = - cost_ins_urgent - cost_action_urgent
@@ -441,11 +446,11 @@ class ThesisEnv(gym.Env):
                             step_cost_actual += self.c_mai[j][action[j]]
                             step_cost_actual += self.gamma * self.c_ins[j][action[j]]
 
-                #action_real = np.zeros((1,tot_comp),dtype = int)
+                # action_real = np.zeros((1,tot_comp),dtype = int)
             act_init[comp_active + list(self.urgent_comps)] = action[comp_active + list(self.urgent_comps)]
-            cost_ins = self.gamma*sum(self.c_ins[comp_active,action[comp_active]]) + \
-                       self.gamma*sum(self.c_ins[self.urgent_comps,action[self.urgent_comps]])
-            cost_action = sum(self.c_mai[comp_active,action[comp_active]]) + cost_action_urgent
+            cost_ins = self.gamma * sum(self.c_ins[comp_active, action[comp_active]]) + \
+                       self.gamma * sum(self.c_ins[self.urgent_comps, action[self.urgent_comps]])
+            cost_action = sum(self.c_mai[comp_active, action[comp_active]]) + cost_action_urgent
             # cost_delay = sum(self.c_delay[comp_active,action[comp_active]])
 
             is_component_active = np.zeros(self.num_components, dtype=bool)
@@ -455,23 +460,24 @@ class ThesisEnv(gym.Env):
         else:
             is_component_active = np.ones(self.num_components, dtype=bool)
             cost_action = sum(self.c_mai[self.components, action]) + \
-                          sum(self.c_mai[self.urgent_comps,action[self.urgent_comps]]) * 0.5
-            cost_ins = self.gamma*sum(self.c_ins[self.components, action]) + \
+                          sum(self.c_mai[self.urgent_comps, action[self.urgent_comps]]) * 0.5
+            cost_ins = self.gamma * sum(self.c_ins[self.components, action]) + \
                        self.gamma * sum(self.c_ins[self.urgent_comps, action[self.urgent_comps]]) * 0.5
 
         # Add cost for risk
-        risk = 0 # No risk is included in this implementation
+        risk = 0  # No risk is included in this implementation
 
         # Add crew cost. Currently, the crew cost is the 50% of the mean action cost
         cost_action_crew = np.sum(self.c_mai_crew[np.unique(action)])
         cost_ins_crew = np.sum(self.c_ins_crew[np.unique(action)])
 
         # Log the costs
-        self.cost_components["maintenance"] += cost_action - cost_action_urgent
-        self.cost_components["inspection"] += cost_ins
-        self.cost_components["mobilization"] += cost_action_crew + cost_ins_crew
-        self.cost_components["urgent_actions"] += cost_action_urgent
-        self.cost_components["total"] += cost_action + cost_ins + cost_action_crew + cost_ins_crew
+        self.cost_components["maintenance"] += self.gamma ** self.time_count * (cost_action - cost_action_urgent)
+        self.cost_components["inspection"] += self.gamma ** self.time_count * cost_ins
+        self.cost_components["mobilization"] += self.gamma ** self.time_count * (cost_action_crew + cost_ins_crew)
+        self.cost_components["urgent_actions"] += self.gamma ** self.time_count * cost_action_urgent
+        self.cost_components["total"] += self.gamma ** self.time_count * (
+                    cost_action + cost_ins + cost_action_crew + cost_ins_crew)
 
         cost_action += cost_action_crew
         cost_ins += cost_ins_crew
@@ -495,7 +501,7 @@ class ThesisEnv(gym.Env):
         :param comp: int - Component index
         :return:
         """
-        if len(tp_dict["cci"].shape) == 4: # only for tp_cci_dn
+        if len(tp_dict["cci"].shape) == 4:  # only for tp_cci_dn
             tp_cci = tp_dict["cci"][:, :, self.time[comp, self.time_count], comp]
         else:
             tp_cci = tp_dict["cci"]
@@ -644,7 +650,7 @@ class ThesisEnv(gym.Env):
         act_durations = self.act_duration[tuple(range(self.num_components)), tuple(act_seq)]
 
         for idx in range(self.num_components):
-            if self.act_ongoing[idx]: # if an action is ongoing from previous year,
+            if self.act_ongoing[idx]:  # if an action is ongoing from previous year,
                 # it is probably a replacement. Remove 365 days
                 act_durations[idx] = self.act_duration[idx, -1] - 365
 
@@ -659,7 +665,7 @@ class ThesisEnv(gym.Env):
         act_ongoing_flag = np.zeros_like(act_durations, dtype=bool)
         for monthIdx in months_to_check:
             now = time.time()
-            act_ongoing_flag_new = act_durations >= month_intv*(monthIdx + 0.5)
+            act_ongoing_flag_new = act_durations >= month_intv * (monthIdx + 0.5)
             if np.all(act_ongoing_flag_new == act_ongoing_flag) and monthIdx != 0:
                 # print("Same network as previously")
                 # TSTT[monthIdx] = TSTT[monthIdx - 1]
@@ -707,38 +713,43 @@ class ThesisEnv(gym.Env):
 
         TSTT = assignment_loop(
             network=self.road_network, algorithm="FW",
-                                    systemOptimal=False,
-                                    costFunction=BPRcostFunction,
-                                    accuracy=0.02, maxIter=200, maxTime=6000000, verbose=False)
+            systemOptimal=False,
+            costFunction=BPRcostFunction,
+            accuracy=0.02, maxIter=200, maxTime=6000000, verbose=False)
 
         self.num_traffic_assignments += 1
 
         if TSTT <= 0:
-            TSTT = len(self.road_network.linkSet)*len(self.road_network.tripSet)*np.mean(
-                self.comp_len[self.components])*60*1e2*12
-            flow = np.ones(self.num_components)*len(self.road_network.tripSet)*1e6*(
-                    act_ongoing_flag == 0)*12
+            TSTT = len(self.road_network.linkSet) * len(self.road_network.tripSet) * np.mean(
+                self.comp_len[self.components]) * 60 * 1e2 * 12
+            flow = np.ones(self.num_components) * len(self.road_network.tripSet) * 1e6 * (
+                    act_ongoing_flag == 0) * 12
         else:
             flow = np.zeros(self.num_components)
             for idx, x in enumerate(self.road_network.linkSet.keys()):
                 flow[idx] = self.road_network.linkSet[x].flow
 
-        return TSTT*30, flow*30 # Multiply x30 to get the monthly trips and travel time
+        return TSTT * 30, flow * 30  # Multiply x30 to get the monthly trips and travel time
 
     def _compute_carbon_footprint(self, comp_traffic):
         # Compute the average carbon footprint based on the CO2e emissions and vehicle types
         roughness_per_segment = np.array(self.iri_values)[np.argmax(self.states_iri, axis=1)]
-        extra_consumption_per_segment_per_type = (np.reshape(roughness_per_segment, (-1, 1)) @ np.reshape(self.carbon_emissions_iri_a, (1, -1)) + np.tile(self.carbon_emissions_iri_b, (self.num_components, 1)))/100
-        extra_consumption_per_segment_per_type = np.clip(extra_consumption_per_segment_per_type, a_min=0, a_max=None) + 1
-        average_emissions_per_segment = extra_consumption_per_segment_per_type @ (np.asarray(self.transport_types) * np.asarray(self.carbon_foot_by_type))
+        extra_consumption_per_segment_per_type = (np.reshape(roughness_per_segment, (-1, 1)) @ np.reshape(
+            self.carbon_emissions_iri_a, (1, -1)) + np.tile(self.carbon_emissions_iri_b,
+                                                            (self.num_components, 1))) / 100
+        extra_consumption_per_segment_per_type = np.clip(extra_consumption_per_segment_per_type, a_min=0,
+                                                         a_max=None) + 1
+        average_emissions_per_segment = extra_consumption_per_segment_per_type @ (
+                    np.asarray(self.transport_types) * np.asarray(self.carbon_foot_by_type))
 
         emissions_from_condition_perc = np.dot(
             np.dot(extra_consumption_per_segment_per_type, self.transport_types),
             self.comp_len[self.components]) / np.sum(self.comp_len[self.components]) - 1
 
-        return - np.sum(self.comp_len[self.components] * np.sum(comp_traffic, axis=1) * average_emissions_per_segment), emissions_from_condition_perc
+        return - np.sum(self.comp_len[self.components] * np.sum(comp_traffic,
+                                                                axis=1) * average_emissions_per_segment), emissions_from_condition_perc
 
-    def _compute_carbon_footprint_actions(self,action):
+    def _compute_carbon_footprint_actions(self, action):
         return -np.sum(np.array(self.action_carbon_emissions)[action] * self.comp_len[self.components]) * 1000 * 3.5 * 2
 
     def _filter_components_actions(self):
@@ -788,8 +799,8 @@ class ThesisEnv(gym.Env):
             road_network_tmp.zoneSet[key].destList = list(i for i in
                                                           road_network_tmp.zoneSet[
                                                               key].destList if i not in del_nodes)
-                # if (node in del_nodes):
-                #     road_network_tmp.zoneSet[key].destList.remove(node)
+            # if (node in del_nodes):
+            #     road_network_tmp.zoneSet[key].destList.remove(node)
 
         self.road_network = road_network_tmp
 
@@ -802,8 +813,10 @@ class ThesisEnv(gym.Env):
         update_dist = states_dist * obs_dist[cur_action_fin, :, obs]
         return update_dist / np.sum(update_dist)
 
+
 if __name__ == "__main__":
     import logging
+
     logging.disable(logging.WARNING)
     os.chdir("../../../..")
 
@@ -813,7 +826,6 @@ if __name__ == "__main__":
     results = []
 
     for ep in range(episodes):
-
 
         # Sample policy check
         all_costs = []
@@ -831,7 +843,7 @@ if __name__ == "__main__":
         import time
 
         env.reset()
-        env.num_traffic_assignments=0
+        env.num_traffic_assignments = 0
         begin_time = time.time()
         for i in range(1, 21):
 

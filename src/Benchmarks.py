@@ -15,7 +15,6 @@ class Benchmarks:
     """
 
     def __init__(self, param_file="src/benchmarks_params.yaml"):
-        os.chdir("../")
         self.param_file = param_file
         self.param_dict = self._load_yaml_file(self.param_file)
 
@@ -65,8 +64,11 @@ class Benchmarks:
                             f"replace_res)")
                 list_costs.append(cost)
                 f.write(f"Iteration {i + 1}: Cost {cost}\n")
-            f.write(f"Average cost: {np.mean(list_costs, axis=0)}")
+                avg_cost = np.mean(list_costs, axis=0)
+            f.write(f"Average cost: {avg_cost}")
             f.close()
+
+        return avg_cost
 
     def perform_experiment(self, mode):
         """
@@ -303,6 +305,7 @@ class Benchmarks:
 
 
 if __name__ == "__main__":
+    os.chdir("../")
     benchmarks = Benchmarks()
     benchmarks.execute_benchmarks()
     #

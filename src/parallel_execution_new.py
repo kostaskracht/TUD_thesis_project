@@ -381,11 +381,11 @@ class MindmapPPOMultithread(MindmapPPO):
                                                       self.env.num_objectives, self.gamma, self.lam,
                                                       self.processes, self.device)
 
-    def run(self, exec_mode, checkpoint=None, reuse_mode="full"):
+    def run(self, exec_mode, checkpoint=None, reuse_mode="full", max_val=None):
 
         # Configure the execution mode
         if exec_mode == "train":
-            self.run_training()
+            self.run_training(max_val=max_val)
         elif exec_mode == "test":
             self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
             self.actor_old.load_state_dict(self.actor.state_dict())
@@ -396,11 +396,11 @@ class MindmapPPOMultithread(MindmapPPO):
             self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
             self.actor_old.load_state_dict(self.actor.state_dict())
             self.critic_old.load_state_dict(self.critic.state_dict())
-            self.run_training()
+            self.run_training(max_val=max_val)
         else:
             raise ValueError("Choose an execution mode between train, continue_train and test.")
 
-    def run_training(self):
+    def run_training(self, max_val=None):
 
         # starting agents and pipes
         agents = []
@@ -475,6 +475,10 @@ class MindmapPPOMultithread(MindmapPPO):
                                     # Stop testing mode and continue training
                                     if not self.quiet: print(f"Average returns: {np.mean(test_returns)}. "
                                                              f"Continuing training")
+
+                                    if avg_returns < max_val:
+                                        print(f"Optimal return {avg_returns} found for PPO based on CBM benchmark "
+                                              f"in episode {msg.episode}. Stopping execution. ")
                                     stopped_testing = True
 
                             # Reset update monitor and send to signal subprocesses to continue
