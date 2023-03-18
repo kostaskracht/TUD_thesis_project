@@ -351,11 +351,11 @@ class Runner(mp.Process):
             msg = MsgUpdateRequest(int(self.proc_id), self.episode_count, self.buffer, True)
             self.pipe.send(msg)
 
+            msg_recv = self.pipe.recv()  # Wait here until we receive a message to continue
+
             # add one more episode to count
             if msg_recv.train:
                 self.episode_count += 1
-
-            msg_recv = self.pipe.recv() # Wait here until we receive a message to continue
 
         # Send message that runners is completed
         msg = MsgMaxReached(self.proc_id, True)
@@ -422,6 +422,7 @@ class MindmapPPOMultithread(MindmapPPO):
             agents.append(agent)
             pipes.append(p_start)
 
+        stopped_testing = False # Flag to trigger transition from test to training mode
         msg_send = MsgTrainMode(True)  # Start with training
         # Start training loop
         while True:
@@ -449,13 +450,15 @@ class MindmapPPOMultithread(MindmapPPO):
                                     self.critic.save_checkpoint(msg.episode)
 
                                 # Start testing mode
-                                if msg.episode % self.log_interval == 0 or msg.episode == self.n_epochs - 1:
+                                if (update_iteration % self.log_interval == 0 or msg.episode == self.n_epochs - 1) \
+                                        and not stopped_testing:
                                     if not self.quiet: print(f"Beginning test runs with current weights.")
 
                                     msg_send = MsgTrainMode(False)
                                     test_returns = []
                                 else:
                                     update_iteration += 1
+                                    stopped_testing = False
 
                             # Check if we are in testing mode
                             elif not msg_send.train:
@@ -472,12 +475,15 @@ class MindmapPPOMultithread(MindmapPPO):
                                     # Stop testing mode and continue training
                                     if not self.quiet: print(f"Average returns: {np.mean(test_returns)}. "
                                                              f"Continuing training")
-                                    msg_send = MsgTrainMode(True)
+                                    stopped_testing = True
 
                             # Reset update monitor and send to signal subprocesses to continue
                             update_request = [False] * self.processes
                             for pipe in pipes:
                                 pipe.send(msg_send)
+
+                            if stopped_testing:
+                                msg_send = MsgTrainMode(True)
 
                     # if agent is sending over reward stats
                     elif type(msg).__name__ == "MsgRewardInfo": # Log train episode to Tensorboard

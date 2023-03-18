@@ -786,7 +786,7 @@ class MindmapPPO:
         self.writer.add_hparams(dict_to_log, {})
 
     def clear_bad_checkpoints(self):
-        best_episode = np.clip(np.argmax(np.asarray(self.total_rewards_test))*self.test_interval,
+        best_episode = np.clip(np.argmax(np.asarray(self.total_rewards_test))*self.log_interval,
                                a_min=None, a_max=self.n_epochs-1)
 
         checkpoint_episodes = np.arange(0, self.n_epochs, self.checkpoint_interval)
