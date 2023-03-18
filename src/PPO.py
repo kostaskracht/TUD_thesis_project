@@ -154,7 +154,7 @@ class MindmapActor(nn.Module):
         root = math.ceil(self.decay_epochs / self.lr_decay_step)
         self.gamma_decay = (self.lr_min / self.lr) ** (1 / root)
 
-        self.supported_activation_fns = {"relu": nn.ReLU()}
+        self.supported_activation_fns = {"relu": nn.ReLU(), "tanh": nn.Tanh()}
         self.arch = architecture
 
         # get network layer dimension pairs (input-output for each layer)
