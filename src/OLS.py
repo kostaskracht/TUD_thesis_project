@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 import json
 from numpyencoder import NumpyEncoder
+from torch.utils.tensorboard import SummaryWriter
 
 import seaborn as sns
 import cvxpy as cp
@@ -12,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # import wandb as wb
-from utils import random_weights, hypervolume, policy_evaluation_mo
+from utils import random_weights, hypervolume, policy_evaluation_mo, sparsity
 
 # from q_learning_cartpole import Qtable, Q_learning
 import gym
@@ -30,6 +31,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 np.set_printoptions(precision=4)
 
+import logging
 
 class OLS:
     # Section 3.3 of http://roijers.info/pub/thesis.pdf
@@ -92,7 +94,6 @@ class OLS:
     # Compute the priority of the weights in the queue
     # Return the indices of the CCS values that were deleted
     def add_solution(self, value, w, gpi_agent=None, env=None) -> int:
-        print("value:", value)
         self.iteration += 1
         # Add weight to visited weights W
         self.W.append(w)
@@ -107,7 +108,7 @@ class OLS:
         # Get the weights that are obsolated i.e. the ones that are not corner weights any more
         W_del = self.remove_obsolete_weights(new_value=value)
         W_del.append(w)
-        print("W_del", W_del)
+        logging.info(f"W_del {W_del}")
 
         # Remove the values from CSS that are dominated by the new value in all visited weights.
         # Return the indices of those values in CSS
@@ -122,18 +123,18 @@ class OLS:
 
         # Compute the priority (predicted improvement) of each of the new corners, and sort the
         # queue base on descending priority
-        print("W_corner", W_corner)
+        logging.info(f"W_corner {W_corner}")
         for wc in W_corner:
             # gpi_agent is None!
             priority = self.get_priority(wc, gpi_agent, env)
-            print("improv.", priority)
+            logging.info(f"Improvement {priority}")
             if priority > self.epsilon:
                 self.queue.append((priority, wc))
         # Sort the queue
         self.queue.sort(key=lambda t: t[0], reverse=True)  # Sort in descending order of priority
 
-        print("ccs:", self.ccs)
-        print("ccs size:", len(self.ccs))
+        logging.info(f"ccs: {self.ccs}")
+        logging.info(f"ccs size: {len(self.ccs)}")
 
         return removed_indx
 
@@ -144,11 +145,11 @@ class OLS:
         # Get the maximym scalarized value from the partial CSS values, for the weight w.
         max_value_ccs = self.max_scalarized_value(w)
         # upper_bound_nemecek = self.upper_bound_policy_caches(w)
-        # print(f'optimistic: {max_optimistic_value} policy_cache_up: {upper_bound_nemecek}')
+        # logging.info(f'optimistic: {max_optimistic_value} policy_cache_up: {upper_bound_nemecek}')
         if gpi_agent is not None:
             gpi_value = policy_evaluation_mo(gpi_agent, env, w, rep=1)
             gpi_value = np.dot(gpi_value, w)
-            print(f"optimistic: {max_optimistic_value:.4f} smp: {max_value_ccs:.4f} gpi: {gpi_value:.4f}")
+            logging.info(f"optimistic: {max_optimistic_value:.4f} smp: {max_value_ccs:.4f} gpi: {gpi_value:.4f}")
             # max_value_ccs = max(max_value_ccs, gpi_value)
         # The priority is the difference between the potential and the current maximum value in
         # the weight.
@@ -203,7 +204,7 @@ class OLS:
                     break
             if best_in_all:
                 # If the current value is dominated by the new value in all weights, remove it!
-                print("removed value", self.ccs[i])
+                logging.info(f"Removed value {self.ccs[i]}")
                 removed_indx.append(i)
                 self.ccs.pop(i)
                 self.ccs_weights.pop(i)
@@ -513,13 +514,11 @@ def find_closest_run(prev_runs_metadata, w):
 def solve(w, prev_runs_metadata, reuse_mode):
 
     # sys.stdout = open(os.devnull, 'w')
-    start = time.time()
+
 
     ppo = MindmapPPOMultithread(quiet=True)
     benchmarks = Benchmarks()
 
-
-    writer = ppo.writer
 
     # Setting the new preferences
     if len(w) == 2:
@@ -528,11 +527,14 @@ def solve(w, prev_runs_metadata, reuse_mode):
     else:
         ppo.env.w_rewards = w
         benchmarks.env.w_rewards = w
-    print(f"Begin execution with weights: {ppo.env.w_rewards}")
+    logging.info(f"==============================================================================")
+    logging.info(f"Begin execution with weights: {ppo.env.w_rewards}")
+    logging.info(f"Saving PPO execution under {ppo.timestamp}")
+    logging.info(f"Saving benchmark execution under {benchmarks.timestamp}")
 
-    print(f"Executing CBM:")
+    logging.info(f"Executing CBM:")
     cbm_value = benchmarks.execute_benchmarks()
-    print(f"CBM return for weights: {ppo.env.w_rewards} is {cbm_value}")
+    logging.info(f"CBM return for weights: {ppo.env.w_rewards} is {cbm_value}")
 
     # if ppo.env.w_rewards[0] == 1.0:
     #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
@@ -542,23 +544,23 @@ def solve(w, prev_runs_metadata, reuse_mode):
         ppo.run(exec_mode="train", max_val=cbm_value)
     else:
         closest_run_metadata = find_closest_run(prev_runs_metadata, w)
-        print(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
+        logging.info(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
         ppo.run(exec_mode="continue_training", checkpoint=(closest_run_metadata["output_dir"],
                                                            closest_run_metadata["best_episode"]), reuse_mode=reuse_mode,
                 max_val=cbm_value)
 
     # sys.stdout = sys.__stdout__
 
-    print(f"Execution time {time.time() - start} seconds.")
-
     # Keep the best weight and output dir of current run for the next one
     best_episode = ppo.best_weight
     output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
 
+    logging.info(f"Best return from testing rounds was {ppo.best_result}")
+
     prev_runs_metadata[ppo.timestamp] = {"output_dir": output_dir, "best_episode": best_episode,
                                          "weights": w}
 
-    print(f"Begin testing:")
+    logging.info(f"Begin testing:")
     # Get the value of current execution
     iters = ppo.test_n_epochs
     n_obj = ppo.env.num_objectives
@@ -585,7 +587,23 @@ if __name__ == "__main__":
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_runs_metadata = {}
 
+    # Begging with logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(f"src/ols/logs/{ols.timestamp}.log"),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+
+    # Set up the tensorboard dashboard for OLS execution
+    logging.info(f"Began OLS execution {ols.timestamp}")
+    writer = SummaryWriter(f"runs/ols/{ols.timestamp}")
+
     if continue_execution:
+        logging.info(f"Loading OLS setting from file {file_to_load}")
         input_dict = json.load(open(file_to_load))
         input_dict["queue"] = [tuple(x) for x in input_dict["queue"]]
         for key, value in input_dict.items():
@@ -600,12 +618,14 @@ if __name__ == "__main__":
         ols.queue = input_dict["queue"]
         ols.iteration = input_dict["iteration"]
 
+    start = time.time()
     while not ols.ended():
         # Select the weight to process
         w = ols.next_w()
-        print("w:", w)
+        # logging.info(f"w to check is: {w}")
         # Solve the single objective problem with the given weight
-        value, prev_runs_metadata, writer = solve(w, prev_runs_metadata, reuse_mode)
+        value, prev_runs_metadata, _ = solve(w, prev_runs_metadata, reuse_mode)
+        logging.info(f"Value from PPO execution: {value}")
         ols.add_solution(value, w)
         # Plot the convex coverage set
         ols.plot_ccs(ols.ccs, ols.ccs_weights, writer=writer)
@@ -621,6 +641,22 @@ if __name__ == "__main__":
         with open(f'{ols.output_dir}ols/iter_{ols.iteration}.json', "w") as f:
             json.dump(output_dict, f, cls=NumpyEncoder)
 
-        print("hv:", hypervolume(np.zeros(m), ols.ccs))
+
+        hv = hypervolume(np.zeros(m), ols.ccs)
+        sp = sparsity(ols.ccs)
+        tm = time.time() - start
+
+        logging.info(f"Hypervolume: {hv:.3f}")
+        logging.info(f"Sparsity: {sp:.3f}")
+        logging.info(f"Execution time {tm:.2f} seconds.")
+        writer.add_scalars("OLS Results",
+                           {"Hypervolume": hv,
+                            "Sparsity": sp,
+                            "Time (sec)": tm},
+                           ols.iteration)
+
+    logging.info(f"OLS execution {ols.timestamp} finished.")
+    logging.info(f"==============================================================================")
+
     if len(ols.ccs[0]) > 2:
         ols.plot_interactive()

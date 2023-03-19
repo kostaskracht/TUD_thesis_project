@@ -1,4 +1,4 @@
-seed: 123
+seed: 124
 gamma: 0.97
 quiet: True
 num_components: 76
@@ -61,6 +61,6 @@ use_cci_state: False
 carbon_emissions_iri_a: [1, 0.783333333, 0.266666667, 0.25, 0.666666667] # Assuming cars, vans, trucks, motorcycles, buses
 carbon_emissions_iri_b: [-1, -0.783333333, -0.266666667, -0.25, -0.666666667] # Assuming cars, vans, trucks, motorcycles, buses
 iri_values: [0.475, 1.215, 2.08, 3.07, 3.87]
-action_carbon_emissions: [0, 6000, 6000, 0, 6000, 6000, 0, 6000, 6000, 22500] # grammar/meter
+action_carbon_emissions: [0, 6000, 6000, 0, 6000, 6000, 0, 6000, 6000, 22500] # grammar/meter^2
 verbose: True
 

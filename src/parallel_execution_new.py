@@ -251,7 +251,7 @@ class MindmapRolloutBufferMultithread:
 class Runner(mp.Process):
     """ Implements a simple single-thread runner class. """
 
-    def __init__(self, name, buffer, pipe, num_episodes, actor, critic, w_rewards, env_name, log_interval):
+    def __init__(self, name, buffer, pipe, num_episodes, actor, critic, w_rewards, env_name, log_interval, seed=None, quiet=False):
 
         mp.Process.__init__(self, name=name)
         print(f"Initializing process {name}")
@@ -280,11 +280,27 @@ class Runner(mp.Process):
         self.num_episodes = num_episodes
         self.log_interval = log_interval
 
+        if seed:
+            self.seed = seed + int(self.proc_id)
+            th.manual_seed(self.seed)
+            np.random.seed(self.seed)
+        else:
+            self.seed = None
+
+        self.quiet = quiet
+
+
     def close(self):
         """ Closes the underlying environment. Should always when ending an experiment. """
         self.env.close()
 
     def run(self):
+        if self.seed:
+            th.manual_seed(self.seed)
+            np.random.seed(self.seed)
+
+        print(f"Seed has been set to {self.seed}.")
+
         msg_recv = MsgTrainMode(True) # Start with training
         while self.episode_count < self.num_episodes:
 
@@ -319,11 +335,11 @@ class Runner(mp.Process):
                     self.env.reset()
 
                     act, counts = np.unique(self.my_transition_buffer.action_buffer[:self.env.timesteps], return_counts=True)
-                    # if not quiet_glob:
-                    print(
-                    f"Returns: {self.my_transition_buffer.return_buffer[0].numpy() * self.env.norm_factor} "
-                    f"Actions percentages: {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.my_transition_buffer.counter)))}"
-                    )
+                    if not self.quiet:
+                        print(
+                        f"Returns: {self.my_transition_buffer.return_buffer[0].numpy() * self.env.norm_factor} "
+                        f"Actions percentages: {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.my_transition_buffer.counter)))}"
+                        )
 
                     # Send message to plot rewards:
                     if self.episode_count % self.log_interval == 0 and int(self.proc_id) == 0 and msg_recv.train:
@@ -370,8 +386,6 @@ class MindmapPPOMultithread(MindmapPPO):
     def __init__(self, param_file="src/model_params_mt.yaml", quiet=False):
 
         super().__init__(param_file, quiet)
-        global quiet_glob
-        quiet_glob = self.quiet
 
         if not self.multirunner:
             self.processes = 1
@@ -421,7 +435,7 @@ class MindmapPPOMultithread(MindmapPPO):
         for agent_id in range(self.processes):
             p_start, p_end = mp.Pipe()
             agent = Runner(str(agent_id), self.buffer, p_end, self.n_epochs, self.actor_old, self.critic_old,
-                           self.env.w_rewards, self.env_name, self.log_interval)
+                           self.env.w_rewards, self.env_name, self.log_interval, seed=self.seed, quiet=self.quiet)
             agent.start()
             agents.append(agent)
             pipes.append(p_start)
@@ -524,7 +538,7 @@ class MindmapPPOMultithread(MindmapPPO):
 
         p_start, p_end = mp.Pipe()
         agent = Runner(str(0), self.buffer, p_end, 2, self.actor_old, self.critic_old,
-                       self.env.w_rewards, self.env_name, self.log_interval)
+                       self.env.w_rewards, self.env_name, self.log_interval, self.seed)
         agent.start()
 
         counter = 0

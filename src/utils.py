@@ -139,6 +139,19 @@ def hypervolume(ref_point: np.ndarray, points: List[np.ndarray]) -> float:
     # return hv(np.array(points)*-1)
     return hv(np.array(points))
 
+def sparsity(ccs):
+
+    sparsity = 0
+    if len(ccs) > 1:
+        ccs_arr = np.stack(ccs)
+        for j in range(ccs_arr.shape[1]):
+            sorted_ccs = np.sort(ccs_arr[:, j])
+            for i in range(ccs_arr.shape[0] - 1):
+                sparsity += (sorted_ccs[i + 1] - sorted_ccs[i]) ** 2
+        sparsity *= 1 / (ccs_arr.shape[0] - 1)
+
+    return sparsity
+
 def seed_everything(seed: int = 42):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)

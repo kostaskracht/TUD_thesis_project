@@ -346,7 +346,7 @@ class MindmapPPO:
         self.critic_old.load_state_dict(self.critic.state_dict())
 
         # Initialize tensorboard logger
-        self.writer = SummaryWriter(f"runs/{self.timestamp}")
+        self.writer = SummaryWriter(f"runs/ppo/{self.timestamp}")
         self.log = {"train_returns": "Returns/Train returns over epochs",
                     "test_returns": "Returns/Test returns over epochs",
                     "lr_actor": "Actor/Actor Learning Rate over epochs",
@@ -574,10 +574,10 @@ class MindmapPPO:
                 critic_values = th.squeeze(critic_values)
                 return_buffer = th.squeeze(return_buffer)
 
-                try:
-                    state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
-                except:
-                    print("Found the error!")
+                # try:
+                state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
+                # except:
+                #     print("Found the error!")
                 new_probs = state_dist.log_prob(action_buffer).sum(dim=1)
 
                 actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
