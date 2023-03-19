@@ -532,7 +532,7 @@ def solve(w, prev_runs_metadata, reuse_mode):
 
     print(f"Executing CBM:")
     cbm_value = benchmarks.execute_benchmarks()
-    print(f"CMB return for weights: {ppo.env.w_rewards} is {cbm_value}")
+    print(f"CBM return for weights: {ppo.env.w_rewards} is {cbm_value}")
 
     # if ppo.env.w_rewards[0] == 1.0:
     #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
@@ -545,44 +545,43 @@ def solve(w, prev_runs_metadata, reuse_mode):
         print(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
         ppo.run(exec_mode="continue_training", checkpoint=(closest_run_metadata["output_dir"],
                                                            closest_run_metadata["best_episode"]), reuse_mode=reuse_mode,
-                max_val=cbm_val)
+                max_val=cbm_value)
 
     # sys.stdout = sys.__stdout__
 
     print(f"Execution time {time.time() - start} seconds.")
-
-    # Get the value of current execution
-    iters = ppo.test_n_epochs
-    n_obj = ppo.env.num_objectives
-    values = np.zeros((iters, n_obj))
-    ppo.env.reset()
-    for i in range(iters):
-        observation = ppo.env.states_nn
-        init_observations = th.tensor(np.array(observation), dtype=th.float)
-        values[i] = ppo.run_episode(i, train_phase="return_values")
-        # values[i] = ppo.critic(init_observations).detach().numpy()
-    ppo.runner.close()
 
     # Keep the best weight and output dir of current run for the next one
     best_episode = ppo.best_weight
     output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
 
     prev_runs_metadata[ppo.timestamp] = {"output_dir": output_dir, "best_episode": best_episode,
-                            "weights": w}
+                                         "weights": w}
 
-    return np.mean(values, axis=0)[:len(w)], \
+    print(f"Begin testing:")
+    # Get the value of current execution
+    iters = ppo.test_n_epochs
+    n_obj = ppo.env.num_objectives
+    # values = np.zeros((iters, n_obj))
+    ppo.env.reset()
+    # for i in range(iters):
+    observation = ppo.env.states_nn
+    init_observations = th.tensor(np.array(observation), dtype=th.float)
+    values = ppo.run(exec_mode="test", checkpoint=(output_dir, best_episode))
+    # values[i] = ppo.critic(init_observations).detach().numpy()
+
+    return values[:len(w)], \
         prev_runs_metadata, \
         writer
-        # TODO - Only assume 2 objectives
 
 if __name__ == "__main__":
 
-    os.chdir("../..")
+    os.chdir("../")
 
     reuse_mode = "full"
     continue_execution = False
     file_to_load = "src/ols/outputs/20230307144052_078/ols/iter_3.json"
-    m = 2 #number of objectives
+    m = 3 #number of objectives
     ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_runs_metadata = {}
 

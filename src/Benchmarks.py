@@ -168,7 +168,7 @@ class Benchmarks:
 
             episode_cost += step_cost * self.env.gamma**timestep
 
-        return episode_cost * self.env.norm_factor
+        return episode_cost
 
     def condition_based_benchmark(self, num_iter, mode):
         """
@@ -259,7 +259,7 @@ class Benchmarks:
             _, step_cost, _, _ = self.env.step(self.env.actions[action])
             episode_cost += - step_cost * self.env.gamma**timestep
 
-        return np.dot(episode_cost, self.env.w_rewards * self.env.norm_factor)
+        return np.dot(episode_cost, self.env.w_rewards)
 
     @staticmethod
     def calculate_min(costs, num_iter=0, mode=""):

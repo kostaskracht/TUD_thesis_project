@@ -386,17 +386,21 @@ class MindmapPPOMultithread(MindmapPPO):
         # Configure the execution mode
         if exec_mode == "train":
             self.run_training(max_val=max_val)
+            return
         elif exec_mode == "test":
-            self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
-            self.actor_old.load_state_dict(self.actor.state_dict())
-            self.critic_old.load_state_dict(self.critic.state_dict())
-            self.run_testing()
+            if checkpoint:
+                self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
+                self.actor_old.load_state_dict(self.actor.state_dict())
+                self.critic_old.load_state_dict(self.critic.state_dict())
+            avg_returns = self.run_testing(test_episodes=50)
+            return avg_returns
 
         elif exec_mode == "continue_training":
             self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
             self.actor_old.load_state_dict(self.actor.state_dict())
             self.critic_old.load_state_dict(self.critic.state_dict())
             self.run_training(max_val=max_val)
+            return
         else:
             raise ValueError("Choose an execution mode between train, continue_train and test.")
 
@@ -476,9 +480,12 @@ class MindmapPPOMultithread(MindmapPPO):
                                     if not self.quiet: print(f"Average returns: {np.mean(test_returns)}. "
                                                              f"Continuing training")
 
-                                    if avg_returns < max_val:
-                                        print(f"Optimal return {avg_returns} found for PPO based on CBM benchmark "
-                                              f"in episode {msg.episode}. Stopping execution. ")
+                                    if max_val:
+                                        if avg_returns > max_val:
+                                            print(f"Optimal return {avg_returns} found for PPO based on CBM benchmark "
+                                                  f"in episode {msg.episode}. Stopping execution. ")
+                                            agent_completed = [True] * self.processes
+                                            break
                                     stopped_testing = True
 
                             # Reset update monitor and send to signal subprocesses to continue
@@ -505,41 +512,48 @@ class MindmapPPOMultithread(MindmapPPO):
         # Clear the checkpoints that do not correspond to the best weights
         self.clear_bad_checkpoints()
 
-    def run_testing(self):
+        return
+
+    def run_testing(self, test_episodes):
         msg_send = MsgTrainMode(False)
         test_returns = {}
         test_actions = {}
         test_rewards = {}
 
+        test_returns_obj = []
+
         p_start, p_end = mp.Pipe()
         agent = Runner(str(0), self.buffer, p_end, 2, self.actor_old, self.critic_old,
-                       self.env.w_rewards, self.env_name)
+                       self.env.w_rewards, self.env_name, self.log_interval)
         agent.start()
 
         counter = 0
-        test_episodes = 10
         while counter < test_episodes:
             if p_start.poll():
                 msg = p_start.recv()
                 if type(msg).__name__ == "MsgUpdateRequest":
                     test_return = msg.buffer.return_buffer[0]
-                    test_action = msg.buffer.action_buffer
-                    test_reward = msg.buffer.reward_buffer
+                    test_action = msg.buffer.action_buffer[:self.env.timesteps]
+                    test_reward = msg.buffer.reward_buffer[:self.env.timesteps]
 
                     label = f"Test {counter}"
                     test_returns[label] = np.dot(test_return.numpy(), self.env.w_rewards)
                     test_actions[label] = test_action[:self.env.timesteps]
                     test_rewards[label] = th.cumsum(test_reward[:self.env.timesteps], dim=0)
+
+                    test_returns_obj.append(copy(test_return.detach().numpy()))
                     counter += 1
 
                     p_start.send(msg_send)
 
         avg_returns = np.mean(list(test_returns.values()))
+        avg_returns_obj = np.mean(test_returns_obj, axis=0)
         print(f"Average test returns: {avg_returns}")
         self.log_after_testing(test_returns, test_actions, test_rewards)
 
         # Terminate the agent
         agent.terminate()
+        return avg_returns_obj
 
     def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
         # if w_rewards:
