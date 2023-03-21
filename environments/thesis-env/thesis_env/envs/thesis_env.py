@@ -76,13 +76,13 @@ class ThesisEnv(gym.Env):
         # Perform basic network tweaking to achieve more interesting results
         for key, link in self.road_network.linkSet.items():
             self.road_network.linkSet[key].beta = 2
-            self.road_network.linkSet[key].max_capacity *= 2
-            self.road_network.linkSet[key].capacity *= 2
+            self.road_network.linkSet[key].max_capacity *= 0.5
+            self.road_network.linkSet[key].capacity *= 0.5
             self.road_network.linkSet[key].flow_init = 0
             self.road_network.linkSet[key].max_capacity_init = self.road_network.linkSet[key].max_capacity
 
         for key, trip in self.road_network.tripSet.items():
-            self.road_network.tripSet[key].demand *= 20
+            self.road_network.tripSet[key].demand *= 5
 
         # Reset the environment
         self.reset()
@@ -254,7 +254,9 @@ class ThesisEnv(gym.Env):
         step_cost[1] = (carbon_emissions - self.carbon_footprint_init) + carbon_emissions_from_actions
 
         # Calculate the total travel time
-        step_cost[2] = - (np.sum(total_travel_time) - np.sum(self.TSTT_init))
+        # step_cost[2] = - (np.sum(total_travel_time) - np.sum(self.TSTT_init))
+        step_cost[2] = self._compute_user_cost(comp_traffic)
+        self.convenience_components["user_cost"] += self.gamma ** self.time_count * step_cost[2]
 
         # Updating the ongoing actions
         self.act_ongoing = act_ongoing_tmp
@@ -326,7 +328,7 @@ class ThesisEnv(gym.Env):
         # Logging
         self.cost_components = {"maintenance": 0, "inspection": 0, "mobilization": 0, "urgent_actions": 0, 'total': 0}
         self.carbon_components = {"rerouting": 0, "condition": 0, "actions": 0, 'total': 0}
-        self.convenience_components = {"travel_time": 0}
+        self.convenience_components = {"travel_time": 0, "user_cost": 0}
 
         return
 
@@ -761,8 +763,8 @@ class ThesisEnv(gym.Env):
             np.dot(extra_consumption_per_segment_per_type, self.transport_types),
             self.comp_len[self.components]) / np.sum(self.comp_len[self.components]) - 1
 
-        # time_ratio = comp_time / comp_fft
-        time_ratio = 1
+        time_ratio = comp_time / comp_fft
+        # time_ratio = 1
 
         return - np.sum(self.comp_len[self.components] * np.sum(comp_traffic * time_ratio, axis=1) *
                         average_emissions_per_segment), \
@@ -770,6 +772,28 @@ class ThesisEnv(gym.Env):
 
     def _compute_carbon_footprint_actions(self, action):
         return -np.sum(np.array(self.action_carbon_emissions)[action] * self.comp_len[self.components]) * 1000 * 3.7 * 2
+
+    def _compute_user_cost(self, comp_traffic):
+
+        # roughness_per_segment = np.array(self.iri_values)[np.argmax(self.states_iri, axis=1)]
+        # roughness_per_segment_per_means_trans = np.repeat([roughness_per_segment], 5, axis=0)
+        # roughness_per_segment_trans = np.multiply(np.array(self.transport_types)[:, np.newaxis], roughness_per_segment_per_means_trans)
+
+
+        # Calculate the user cost per IRI state, per transport type
+        IRI = np.reshape(self.iri_values, (1, -1))
+        user_cost_per_state_vt = np.reshape(self.a0, (-1, 1)) + \
+                            np.reshape(self.a1, (-1, 1)) @ IRI + \
+                            np.reshape(self.a2, (-1, 1)) @ IRI ** 2 + \
+                            np.reshape(self.a3, (-1, 1)) @ IRI ** 3
+
+        # Compute the user cost per IRI state
+        user_cost_per_state = np.array(self.transport_types) @ user_cost_per_state_vt
+
+        # Compute the user cost per segment (in $/per vehicle km)
+        user_cost_per_segment = user_cost_per_state[np.argmax(self.states_iri, axis=1)]
+
+        return -np.sum(user_cost_per_segment * np.sum(comp_traffic, axis=1) * self.comp_len[self.components])
 
     def _filter_components_actions(self):
         # Filter specific components
