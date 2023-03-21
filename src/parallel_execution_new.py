@@ -39,7 +39,7 @@ class MindmapRolloutBufferMultithread:
     :param lam (float): Lambda parameter
 
     """
-    def __init__(self, num_states, num_components, timesteps, num_objectives, gamma=0.95, lam=0.95, processes=1, device="cpu"):
+    def __init__(self, num_states, num_components, timesteps, num_objectives, gamma=0.99, lam=0.95, processes=1, device="cpu"):
         # Buffer initialization
         self.num_components = num_components
         self.num_states = num_states
@@ -392,7 +392,7 @@ class MindmapPPOMultithread(MindmapPPO):
 
         # Initialize Rollout buffer
         self.buffer = MindmapRolloutBufferMultithread(self.env.num_states_iri, self.env.num_components, self.env.timesteps,
-                                                      self.env.num_objectives, self.gamma, self.lam,
+                                                      self.env.num_objectives, self.env.gamma, self.lam,
                                                       self.processes, self.device)
 
     def run(self, exec_mode, checkpoint=None, reuse_mode="full", max_val=None):
@@ -569,6 +569,69 @@ class MindmapPPOMultithread(MindmapPPO):
         agent.terminate()
         return avg_returns_obj
 
+    def execute_environment(self, test_episodes=50):
+
+        results = []
+        all_costs = []
+        all_costs_buffer = []
+        for ep in range(test_episodes):
+
+            # Sample policy check
+
+            all_states = []
+
+            # Initialize tables for visualization
+            actions = []
+            costs = []
+            states_iri = []
+            traffic = []
+            episode_cost = np.zeros(3)
+
+            # total_urgent_comps = 0
+
+            import time
+
+            self.env.reset()
+            # self.env.num_traffic_assignments = 0
+            begin_time = time.time()
+            for i in range(1, 21):
+                # for i in range(1, 4):
+
+                step_time = time.time()
+
+                # Load action from PPO output
+                cur_action, _ = ppo.actor.sample_action_actor(self.env.states_nn, ep=1)
+                # states_init = self.env.states_nn
+
+                states, step_cost, done, metadata = self.env.step(self.env.actions[cur_action])
+
+                # ppo.buffer.store(states_init, cur_action, step_cost, 1, th.tensor(1))
+
+                actions.append(cur_action)
+                costs.append(step_cost)
+                episode_cost += (self.env.gamma ** (i - 1)) * step_cost[0] * self.env.norm_factor[0]
+
+            # observation_tensor = th.tensor(np.array([states]), dtype=th.float).to(
+            #     self.device)
+            # last_value = 0 if done else th.dot(self.critic(observation_tensor.reshape(1, -1)).item(),
+            #                                    self.env.w_rewards)
+            # self.buffer.finish_trajectory(last_value, self.env.w_rewards)
+            results.append([ep, time.time() - begin_time, self.env.num_traffic_assignments])
+            # print(f"Episode {ep}: {time.time() - begin_time}, {env.num_traffic_assignments}")
+
+            all_costs.append(episode_cost[0])
+            # all_costs_buffer.append(ppo.buffer.return_buffer[0])
+
+            act, counts = np.unique(np.stack(actions), return_counts=True)
+            print(f"Episode {ep}: "
+                  f"Total reward is: {episode_cost[0]}"
+                  f" Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.env.timesteps)))}"
+                  # f"Total urgent comps {total_urgent_comps}"
+                  )
+
+        print(f"Average cost is {np.mean(all_costs)}")
+        return np.mean(all_costs)
+
     def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
         # if w_rewards:
         #     self.env.w_rewards = w_rewards
@@ -670,6 +733,8 @@ if __name__ == "__main__":
     ppo = MindmapPPOMultithread()
     print(f"Weights are {ppo.env.w_rewards}")
     ppo.run(exec_mode="train")
-    # ppo.run(exec_mode="test", checkpoint=("src/model_weights/20230316163006_289/", 10500))
+    # checkpoint_dir = "src/model_weights/20230316163006_289/",
+    # checkpoint_ep = 10250, reuse_mode = "full"
+    # ppo.run(exec_mode="test", checkpoint=("src/model_weights/20230316163006_289/", 10250))
     # ppo.run(exec_mode="continue_training", checkpoint=("src/model_weights/20230316163006_289/", 10500))
     print(f"Total time {time.time() - start} seconds.")

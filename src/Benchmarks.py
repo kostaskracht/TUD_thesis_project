@@ -66,6 +66,7 @@ class Benchmarks:
                 f.write(f"Iteration {i + 1}: Cost {cost}\n")
                 avg_cost = np.mean(list_costs, axis=0)
             f.write(f"Average cost: {avg_cost}")
+            print(f"Average cost: {avg_cost}")
             f.close()
 
         return avg_cost

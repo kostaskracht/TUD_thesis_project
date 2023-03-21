@@ -1,5 +1,5 @@
 seed: 124
-gamma: 0.97
+gamma: 0.99
 quiet: True
 num_components: 76
 num_states_cci: 6

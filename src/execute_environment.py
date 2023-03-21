@@ -7,6 +7,8 @@ import time
 from tqdm import tqdm
 import yaml
 
+from parallel_execution_new import MindmapPPOMultithread
+
 os.chdir("../")
 env = gym.make("thesis-env-v1", quiet=True)
 
@@ -15,9 +17,15 @@ import logging
 logging.disable(logging.WARNING)
 # os.chdir("../../../..")
 
-episodes = 1
+episodes = 50
 results = []
 all_costs = []
+
+ppo = MindmapPPOMultithread()
+ppo._load_model_weights(checkpoint_dir="src/model_weights/20230316163006_289/",
+                        checkpoint_ep=10250, reuse_mode="full")
+
+mode = "cbm" # ppo, cbm, random, other
 
 for ep in range(episodes):
 
@@ -28,7 +36,6 @@ for ep in range(episodes):
     # Initialize tables for visualization
     actions = []
     costs = []
-    # states_cci = []
     states_iri = []
     traffic = []
     episode_cost = np.zeros(3)
@@ -45,72 +52,43 @@ for ep in range(episodes):
         # for i in range(1, 4):
 
         step_time = time.time()
-        # cur_action = 0
-        # if i % 2 == 0: # minor repair
-        #     cur_action = 9
-        # elif i % 8 == 0: # major repair
-        #     cur_action = 2
-        # elif i % 18 == 0: # replace
-        #     cur_action = 9
-        # if i % 4 == 0 and cur_action != 9: # low fidelity inspection
-        #     cur_action += 3
-        # elif i % 7 == 0 and cur_action != 9: # high fidelity inspection
-        #     cur_action += 6
-        # cur_action = np.random.choice(env.actions, size=env.num_components, replace=True,
-        #                            p=[0.8] + [0.2/(env.num_actions-1)]*(env.num_actions-1)
-        #                               )
-        # cur_action = np.zeros(env.num_components, dtype=int)
-
-        # When actions are being taken from the NN, filter them like: env.actions[actions] TODO
-        # print(f"Current action is {cur_action}")
-        # states, step_cost, done, metadata = env.step(env.actions[cur_action])
-
-        # Case 1: Do nothing
-        # cur_action = np.zeros(env.num_components, dtype=int)
-
-        # Case 2: Always repair
-        # cur_action = np.ones(env.num_components, dtype=int)*7
-
-        # Case 3: Replace every 5 years
-        # if i % 5 == 0:
-        #     cur_action = np.ones(env.num_components, dtype=int)*9
-        # else:
-        #     cur_action = np.ones(env.num_components, dtype=int)*0
-        #
-        # # Case 4: Replace every 5 years
-        # if i % 6 == 0:
-        #     cur_action = np.ones(env.num_components, dtype=int)*9
-        # else:
-        #     cur_action = np.ones(env.num_components, dtype=int)*0
 
         inspect_interval = 1
         repair_state = 2
         replace_state = 4
 
-        # Random actions
-        cur_action = np.random.choice(np.arange(5), size=env.num_components, replace=True,
-                                      # p=[0.8] + [0.2/(env.num_actions-1)]*(env.num_actions-1)
-                                      )
+        if mode == "random":
+            # # Random actions
+            cur_action = np.random.choice(np.arange(5), size=env.num_components, replace=True,
+                                          # p=[0.8] + [0.2/(env.num_actions-1)]*(env.num_actions-1)
+                                          )
+        elif mode == "ppo":
+            # Load action from PPO output
+            cur_action, _ = ppo.actor.sample_action_actor(env.states_nn, ep=1)
 
-        # CBM best setting
-        # cur_action = np.zeros(env.num_components, dtype=int)
-        # for comp in range(env.num_components):
-        #     mean_state_iri = np.random.choice(range(env.states_iri.shape[1]), 1,
-        #                                       p=env.states_iri[comp])
-        #     mean_state = np.max([mean_state_iri])
-        #     if mean_state >= replace_state:
-        #         cur_action[comp] = 4
-        #     elif mean_state >= repair_state:
-        #         cur_action[comp] = 1
-        #     # elif mean_state >= minor_repair_thres:
-        #     #     action[comp] = 1
-        #     if (i % inspect_interval == 0) and (cur_action[comp] != 4):
-        #         cur_action[comp] += 2
+        elif mode == "cbm":
+            # CBM best setting
+            cur_action = np.zeros(env.num_components, dtype=int)
+            for comp in range(env.num_components):
+                mean_state_iri = np.random.choice(range(env.states_iri.shape[1]), 1,
+                                                  p=env.states_iri[comp])
+                mean_state = np.max([mean_state_iri])
+                if mean_state >= replace_state:
+                    cur_action[comp] = 4
+                elif mean_state >= repair_state:
+                    cur_action[comp] = 1
+                # elif mean_state >= minor_repair_thres:
+                #     action[comp] = 1
+                if (i % inspect_interval == 0) and (cur_action[comp] != 4):
+                    cur_action[comp] += 2
+
+        else:
+            pass
 
         states, step_cost, done, metadata = env.step(env.actions[cur_action])
 
         actions.append(cur_action)
-        episode_cost += step_cost * env.norm_factor[0]
+        episode_cost += (env.gamma ** (i-1)) * step_cost[0] * env.norm_factor[0]
         # total_urgent_comps += len(env.urgent_comps)
         # states, step_cost, done, _ = env.step(np.array([cur_action] * env.num_components))
         # print(f"Step time is {time.time() - step_time}")
@@ -133,7 +111,7 @@ for ep in range(episodes):
         # states_iri.append(metadata["states_iri"])
         # traffic.append(metadata["traffic"])
     results.append([ep, time.time() - begin_time, env.num_traffic_assignments])
-    print(f"Episode {ep}: {time.time() - begin_time}, {env.num_traffic_assignments}")
+    # print(f"Episode {ep}: {time.time() - begin_time}, {env.num_traffic_assignments}")
 
     all_costs.append(episode_cost[0])
 

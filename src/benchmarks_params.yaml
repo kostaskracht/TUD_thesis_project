@@ -1,5 +1,5 @@
 env_name: "thesis-env-v1"
-seed: 123
+seed: 125
 modes: ["condition"]
 iters: 10
 save: True
