@@ -22,8 +22,8 @@ results = []
 all_costs = []
 
 ppo = MindmapPPOMultithread()
-ppo._load_model_weights(checkpoint_dir="src/model_weights/20230316163006_289/",
-                        checkpoint_ep=10250, reuse_mode="full")
+# ppo._load_model_weights(checkpoint_dir="src/model_weights/20230316163006_289/",
+#                         checkpoint_ep=10250, reuse_mode="full")
 
 mode = "cbm" # ppo, cbm, random, other
 

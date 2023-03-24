@@ -13,8 +13,8 @@ time: # timestep intervals (both inclusive)
 condition: # timestep intervals for inspection, state thresholds for maintenance
   inspect_interval_min: null
   inspect_interval_max: null
-  minor_repair_threshold_min: 1
-  minor_repair_threshold_max: 3
+  minor_repair_threshold_min: 0
+  minor_repair_threshold_max: 1
   major_repair_threshold_min: null
   major_repair_threshold_max: null
   replace_threshold_min: null

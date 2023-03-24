@@ -47,29 +47,30 @@ class Benchmarks:
             inspect_res, minor_repair_res, major_repair_res, replace_res = \
                 self.perform_experiment(mode=mode)
 
-            # inspect_res = 1
-            # minor_repair_res = 1
-            # major_repair_res = 2
-            # replace_res = 11
             # Write on results file
             f.write(f"Results for best {mode} benchmark\n")
             f.write(f"inspect int: {inspect_res}, minor_repair res: {minor_repair_res}, "
                     f"major_repair res: {major_repair_res},"
                     f"replace res: "
                     f"{replace_res}\n")
+            list_costs_scalarized = []
             list_costs = []
-            for i in range(100):
-                cost = eval(f"self.{mode}_based_rule(inspect_res, minor_repair_res, "
+            for i in range(1000):
+                cost_scalarized, cost = eval(f"self.{mode}_based_rule(inspect_res, minor_repair_res, "
                             f"major_repair_res, "
                             f"replace_res)")
+                list_costs_scalarized.append(cost_scalarized)
                 list_costs.append(cost)
-                f.write(f"Iteration {i + 1}: Cost {cost}\n")
-                avg_cost = np.mean(list_costs, axis=0)
+                f.write(f"Iteration {i + 1}: Scalarized Cost {cost_scalarized}\n")
+            avg_cost_scalarized = np.mean(list_costs_scalarized, axis=0)
+            avg_cost = np.mean(list_costs, axis=0)
+            f.write(f"Average scalarized cost: {avg_cost_scalarized}")
             f.write(f"Average cost: {avg_cost}")
-            print(f"Average cost: {avg_cost}")
+            print(f"Average scalarized cost: {avg_cost_scalarized}")
+            f.write(f"Average cost: {avg_cost}")
             f.close()
 
-        return avg_cost
+        return avg_cost_scalarized, avg_cost
 
     def perform_experiment(self, mode):
         """
@@ -81,7 +82,7 @@ class Benchmarks:
         experiments = []
 
         for num_iter in range(self.iters):
-            print(f"Iteration {num_iter + 1}")
+            print(f"============ Iteration {num_iter + 1} ========================")
             if mode == "time":
                 experiment_cost = self.time_based_benchmark(num_iter, mode)
             elif mode == "condition":
@@ -95,13 +96,14 @@ class Benchmarks:
                 np.save(self.output_dir + output_name, experiment_cost)
 
         # Find the overall best
-        print("Finding the overall best combination")
+        print(f"============ Finding the overall best combination ========================")
         experiments_np = np.stack(experiments)
         experiments_avg = np.mean(experiments_np, axis=0)
 
         inspect_res, minor_repair_res, major_repair_res, replace_res = self.calculate_min(
             experiments_avg, mode)
 
+        print(f"============ End of experiment in condition {mode} ========================")
         return inspect_res, minor_repair_res, major_repair_res, replace_res
 
     def time_based_benchmark(self, num_iter, mode):
@@ -192,40 +194,40 @@ class Benchmarks:
             self.inspect_interval_min = -1
 
         if not self.minor_repair_threshold_max:
-            self.minor_repair_threshold_max = self.env.num_states + 2
+            self.minor_repair_threshold_max = self.env.num_states + 1
         if not self.major_repair_threshold_max:
-            self.major_repair_threshold_max = self.env.num_states + 2
+            self.major_repair_threshold_max = self.env.num_states + 1
         if not self.replace_threshold_max:
-            self.replace_threshold_max = self.env.num_states + 2
+            self.replace_threshold_max = self.env.num_states + 1
         if not self.inspect_interval_max:
             self.inspect_interval_max = self.env.timesteps + 2
 
-        minor_repair_thresholds = np.arange(np.max([1, self.minor_repair_threshold_min]),
+        minor_repair_thresholds = np.arange(np.max([0, self.minor_repair_threshold_min]),
                                       np.min([self.env.num_states + 1,
                                               self.minor_repair_threshold_max]))
-        major_repair_thresholds = np.arange(np.max([1, self.major_repair_threshold_min]),
+        major_repair_thresholds = np.arange(np.max([0, self.major_repair_threshold_min]),
                                             np.min([self.env.num_states + 1,
                                                     self.major_repair_threshold_max]))
-        replace_thresholds = np.arange(np.max([1, self.replace_threshold_min]),
+        replace_thresholds = np.arange(np.max([0, self.replace_threshold_min]),
                                        np.min(
                                            [self.env.num_states + 1, self.replace_threshold_max]))
         inspect_intervals = np.arange(np.max([1, self.inspect_interval_min]),
                                       np.min([self.env.timesteps + 1, self.inspect_interval_max]))
 
         all_costs = np.zeros((len(inspect_intervals) + 1,
-                              len(minor_repair_thresholds) + 1,
-                              len(major_repair_thresholds) + 1,
-                              len(replace_thresholds) + 1))
+                              len(minor_repair_thresholds),
+                              len(major_repair_thresholds),
+                              len(replace_thresholds)))
 
         for inspect_int in tqdm(inspect_intervals):
             for minor_repair_thres in minor_repair_thresholds:
                 for major_repair_thres in major_repair_thresholds:
                     for replace_thres in replace_thresholds:
 
-                        episode_cost = self.condition_based_rule(inspect_int, minor_repair_thres,
+                        episode_cost, _ = self.condition_based_rule(inspect_int, minor_repair_thres,
                                                                  major_repair_thres, replace_thres)
                         all_costs[inspect_int, minor_repair_thres, major_repair_thres,
-                        replace_thres] = -episode_cost
+                        replace_thres] = episode_cost
 
         _, _, _, _ = self.calculate_min(all_costs, num_iter, mode)
 
@@ -237,11 +239,6 @@ class Benchmarks:
         episode_cost = np.zeros(3)
 
         for timestep in range(1, self.env.timesteps + 1):
-            # self.env.states = (self.env.states_cci.T @ self.env.states_iri).flatten()
-            # self.env.states = np.reshape(np.einsum('km,kn->kmn',self.env.states_cci,
-            #                                        self.env.states_iri),
-            #                              (self.env.num_components, -1))
-            # # self.env.states = self.env.states/np.sum(self.env.states, axis=1)
             action = np.zeros(self.env.num_components, dtype=int)
             for comp in range(self.env.num_components):
                 # mean_state_cci = np.random.choice(range(self.env.states_cci.shape[1]), 1,
@@ -257,10 +254,12 @@ class Benchmarks:
                 #     action[comp] = 1
                 if (timestep % inspect_int == 0) and (action[comp] != 4):
                     action[comp] += 2
-            _, step_cost, _, _ = self.env.step(self.env.actions[action])
-            episode_cost += - step_cost * self.env.gamma**timestep
 
-        return np.dot(episode_cost, self.env.w_rewards)
+            _, step_cost, _, _ = self.env.step(self.env.actions[action])
+
+            episode_cost += step_cost * self.env.gamma**(timestep-1)
+
+        return np.dot(episode_cost, self.env.w_rewards), episode_cost
 
     @staticmethod
     def calculate_min(costs, num_iter=0, mode=""):
@@ -273,12 +272,12 @@ class Benchmarks:
         """
         min_cost = np.max(costs[np.nonzero(costs)])
         min_intervals = np.where(costs == min_cost)
-        print(f"Mode {mode} - Iteration: {num_iter}")
+        # print(f"Mode {mode} - Iteration: {num_iter}")
         print(f"Min cost = {min_cost}")
-        print(f"Inspection = {min_intervals[0][0]}")
-        print(f"Minor Repair = {min_intervals[1][0]}")
-        print(f"Major Repair = {min_intervals[2][0]}")
-        print(f"Replace = {min_intervals[3][0]}")
+        print(f"Inspection : Every {min_intervals[0][0]} years")
+        # print(f"Minor Repair : When IRI hits {min_intervals[1][0]}")
+        print(f"Major Repair : When IRI hits {min_intervals[2][0]}")
+        print(f"Replace = When IRI hits {min_intervals[3][0]}")
 
         return min_intervals[0][0], min_intervals[1][0], min_intervals[2][0], min_intervals[3][0]
 

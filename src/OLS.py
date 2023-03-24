@@ -123,16 +123,17 @@ class OLS:
 
         # Compute the priority (predicted improvement) of each of the new corners, and sort the
         # queue base on descending priority
-        logging.info(f"W_corner {W_corner}")
+        # logging.info(f"W_corner {W_corner}")
         for wc in W_corner:
             # gpi_agent is None!
             priority = self.get_priority(wc, gpi_agent, env)
-            logging.info(f"Improvement {priority}")
+            logging.info(f"W_corner {wc} : Improvement {priority}")
             if priority > self.epsilon:
                 self.queue.append((priority, wc))
         # Sort the queue
         self.queue.sort(key=lambda t: t[0], reverse=True)  # Sort in descending order of priority
 
+        logging.info(f"queue size {len(self.queue)}")
         logging.info(f"ccs: {self.ccs}")
         logging.info(f"ccs size: {len(self.ccs)}")
 
@@ -487,7 +488,7 @@ class OLS:
         import plotly.express as px
         import pandas as pd
 
-        labels = ["Lifecycle Cost", "Lifecycle Carbon Emissions", "Total Travel Time"]
+        labels = ["Lifecycle maintenance cost", "Lifecycle carbon emissions", "Lifecycle user cost"]
 
         ccs_arr = np.stack(self.ccs)
         df = pd.DataFrame({labels[0]: ccs_arr[:, 0], labels[1]: ccs_arr[:, 1], labels[2]: ccs_arr[:, 2]})
@@ -519,6 +520,9 @@ def solve(w, prev_runs_metadata, reuse_mode):
     ppo = MindmapPPOMultithread(quiet=True)
     benchmarks = Benchmarks()
 
+    enable_ppo = True
+    enable_cbm = False
+    cap_ppo = False
 
     # Setting the new preferences
     if len(w) == 2:
@@ -527,54 +531,66 @@ def solve(w, prev_runs_metadata, reuse_mode):
     else:
         ppo.env.w_rewards = w
         benchmarks.env.w_rewards = w
-    logging.info(f"==============================================================================")
-    logging.info(f"Begin execution with weights: {ppo.env.w_rewards}")
-    logging.info(f"Saving PPO execution under {ppo.timestamp}")
-    logging.info(f"Saving benchmark execution under {benchmarks.timestamp}")
+    logging.info(f"Begin execution with weights: {benchmarks.env.w_rewards}")
 
-    logging.info(f"Executing CBM:")
-    cbm_value = benchmarks.execute_benchmarks()
-    logging.info(f"CBM return for weights: {ppo.env.w_rewards} is {cbm_value}")
+    if enable_cbm:
+        logging.info(f"Saving benchmark execution under {benchmarks.timestamp}")
 
-    # if ppo.env.w_rewards[0] == 1.0:
-    #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
-    # elif ppo.env.w_rewards[1] == 1.0:
-    #     return np.array([-1.3583e+03, -0.93151]), {"best_episode": 14200, "output_dir": "src/model_weights/20230305004020_706"}, writer
-    if len(prev_runs_metadata) == 0 or reuse_mode == "no":
-        ppo.run(exec_mode="train", max_val=cbm_value)
+        logging.info(f"Executing CBM:")
+        cbm_value, cbm_values = benchmarks.execute_benchmarks()
+        logging.info(f"CBM return for weights: {benchmarks.env.w_rewards} is {cbm_value}")
+
+        if cap_ppo:
+            max_val = cbm_value
+        else:
+            max_val = None
     else:
-        closest_run_metadata = find_closest_run(prev_runs_metadata, w)
-        logging.info(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
-        ppo.run(exec_mode="continue_training", checkpoint=(closest_run_metadata["output_dir"],
-                                                           closest_run_metadata["best_episode"]), reuse_mode=reuse_mode,
-                max_val=cbm_value)
+        max_val = None
 
-    # sys.stdout = sys.__stdout__
+    if enable_ppo:
+        logging.info(f"Begin execution with weights: {ppo.env.w_rewards}")
+        logging.info(f"Saving PPO execution under {ppo.timestamp}")
+        # if ppo.env.w_rewards[0] == 1.0:
+        #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
+        # elif ppo.env.w_rewards[1] == 1.0:
+        #     return np.array([-1.3583e+03, -0.93151]), {"best_episode": 14200, "output_dir": "src/model_weights/20230305004020_706"}, writer
+        if len(prev_runs_metadata) == 0 or reuse_mode == "no":
+            ppo.run(exec_mode="train", max_val=max_val)
+        else:
+            closest_run_metadata = find_closest_run(prev_runs_metadata, w)
+            logging.info(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
+            ppo.run(exec_mode="continue_training", checkpoint=(closest_run_metadata["output_dir"],
+                                                               closest_run_metadata["best_episode"]), reuse_mode=reuse_mode,
+                    max_val=max_val)
 
-    # Keep the best weight and output dir of current run for the next one
-    best_episode = ppo.best_weight
-    output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
+        # Keep the best weight and output dir of current run for the next one
+        best_episode = ppo.best_weight
+        output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
 
-    logging.info(f"Best return from testing rounds was {ppo.best_result}")
+        logging.info(f"Best return from testing rounds was {ppo.best_result}")
 
-    prev_runs_metadata[ppo.timestamp] = {"output_dir": output_dir, "best_episode": best_episode,
-                                         "weights": w}
+        prev_runs_metadata[ppo.timestamp] = {"output_dir": output_dir, "best_episode": best_episode,
+                                             "weights": w}
 
-    logging.info(f"Begin testing:")
-    # Get the value of current execution
-    iters = ppo.test_n_epochs
-    n_obj = ppo.env.num_objectives
-    # values = np.zeros((iters, n_obj))
-    ppo.env.reset()
-    # for i in range(iters):
-    observation = ppo.env.states_nn
-    init_observations = th.tensor(np.array(observation), dtype=th.float)
-    values = ppo.run(exec_mode="test", checkpoint=(output_dir, best_episode))
-    # values[i] = ppo.critic(init_observations).detach().numpy()
+        logging.info(f"Begin testing:")
+        # Get the value of current execution
+        iters = ppo.test_n_epochs
+        n_obj = ppo.env.num_objectives
+        # values = np.zeros((iters, n_obj))
+        ppo.env.reset()
+        # for i in range(iters):
+        observation = ppo.env.states_nn
+        init_observations = th.tensor(np.array(observation), dtype=th.float)
+        values = ppo.run(exec_mode="test", checkpoint=(output_dir, best_episode))
+        # values[i] = ppo.critic(init_observations).detach().numpy()
 
-    return values[:len(w)], \
-        prev_runs_metadata, \
-        writer
+        return values[:len(w)], \
+            prev_runs_metadata, \
+            writer
+
+    else:
+        logging.info(f"Returning the CBM value")
+        return cbm_values[:len(w)], {}, ""
 
 if __name__ == "__main__":
 
@@ -624,6 +640,9 @@ if __name__ == "__main__":
         w = ols.next_w()
         # logging.info(f"w to check is: {w}")
         # Solve the single objective problem with the given weight
+        logging.info(f"==============================================================================")
+        logging.info(f"Beginning OLS iteration {ols.iteration}")
+
         value, prev_runs_metadata, _ = solve(w, prev_runs_metadata, reuse_mode)
         logging.info(f"Value from PPO execution: {value}")
         ols.add_solution(value, w)

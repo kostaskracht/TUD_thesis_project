@@ -762,9 +762,25 @@ class MindmapPPO:
                                         {key: value[timestep, 2] for key, value in test_rewards.items()},
                                         timestep)
 
-                self.writer.add_scalars(self.log["testing_actions"],
-                                        {key: value[timestep, 0] for key, value in test_actions.items()},
-                                        timestep)
+                # self.writer.add_scalars(self.log["testing_actions"],
+                #                         {key: value[timestep, 0] for key, value in test_actions.items()},
+                #                         timestep)
+
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            fig = plt.figure()
+
+            ax = fig.add_subplot()
+            sns.heatmap(test_actions["Test 0"], linewidth=0.5, ax=ax, cbar_kws={"ticks":[0, 1, 2, 3, 4]})
+            # ax.imshow(test_actions["Test 0"], cmap='hot', interpolation='nearest')
+
+            # Plot actions heatmap
+            fig.canvas.draw()
+
+            img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+            img_arr = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+            self.writer.add_image(self.log["testing_actions"], img_arr, dataformats="HWC")
 
             for idx, key in enumerate(test_returns.keys()):
                 self.writer.add_scalar(self.log["testing_returns"], test_returns[key], idx)
