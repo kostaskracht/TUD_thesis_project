@@ -201,62 +201,67 @@ class ThesisEnv(gym.Env):
                     # self.states_cci[idx] = update_cci / np.sum(update_cci)
 
         # For the whole system
-        # Add up the costs from actions
-        step_cost[0] = cost_action + cost_insp + cost_risk
+        if self.is_objective_active[0]:
+            # Add up the costs from actions
+            step_cost[0] = cost_action + cost_insp + cost_risk
 
-        # Calculate the traffic flows in the network per month
-        # comp traffic can be either (components x months)
-        total_travel_time, comp_traffic, comp_time, comp_fft = self._traffic_assignment(action, is_comp_active)
+        if self.is_objective_active[1] or self.is_objective_active[2]:
+            # Calculate the traffic flows in the network per month
+            # comp traffic can be either (components x months)
+            total_travel_time, comp_traffic, comp_time, comp_fft = self._traffic_assignment(action, is_comp_active)
 
-        # Visualize the road network
-        if self.plot_road_network:
-            node_ids_in_use = []
-            for idx, coord in enumerate(self.node_coords):
-                if coord[0] in self.edges[self.components]:
-                    node_ids_in_use.append(idx)
+            # Visualize the road network
+            if self.plot_road_network:
+                node_ids_in_use = []
+                for idx, coord in enumerate(self.node_coords):
+                    if coord[0] in self.edges[self.components]:
+                        node_ids_in_use.append(idx)
 
-            # metric_to_plot = comp_traffic[:, 0]
-            # title_to_plot = f"Timestep {self.time_count}, Month {'January'}, closed segments {np.where(act_init != 0)[0]}"
-            # min_max_to_plot = (0, np.max(comp_traffic[:, 0]))
+                # metric_to_plot = comp_traffic[:, 0]
+                # title_to_plot = f"Timestep {self.time_count}, Month {'January'}, closed segments {np.where(act_init != 0)[0]}"
+                # min_max_to_plot = (0, np.max(comp_traffic[:, 0]))
 
-            # Other plot ideas:
+                # Other plot ideas:
 
-            metric_to_plot = np.zeros(len(self.components))
-            title_to_plot = f"IRI States - Timestep {self.time_count}, Month {'January'}"
-            min_max_to_plot = (0, 5)
-            #
-            # metric_to_plot = action
-            # title_to_plot = f"Actions - Timestep {self.time_count}"
-            # min_max_to_plot = (0, 9)
+                metric_to_plot = np.zeros(len(self.components))
+                title_to_plot = f"IRI States - Timestep {self.time_count}, Month {'January'}"
+                min_max_to_plot = (0, 5)
+                #
+                # metric_to_plot = action
+                # title_to_plot = f"Actions - Timestep {self.time_count}"
+                # min_max_to_plot = (0, 9)
 
-            plot_graph(np.asarray(self.node_coords)[node_ids_in_use], self.edges[self.components],
-                       metric_to_plot, title_to_plot, min_max=min_max_to_plot)
+                plot_graph(np.asarray(self.node_coords)[node_ids_in_use], self.edges[self.components],
+                           metric_to_plot, title_to_plot, min_max=min_max_to_plot)
 
-        # Calculate the total carbon footprint for this step
-        carbon_emissions, emissions_from_condition_perc = self._compute_carbon_footprint(
-            comp_traffic, comp_time, comp_fft)  # emissions are negative
-        carbon_emissions_from_actions = self._compute_carbon_footprint_actions(action)
+        if self.is_objective_active[1]:
+            # Calculate the total carbon footprint for this step
+            carbon_emissions, emissions_from_condition_perc = self._compute_carbon_footprint(
+                comp_traffic, comp_time, comp_fft)  # emissions are negative
+            carbon_emissions_from_actions = self._compute_carbon_footprint_actions(action)
 
-        # Log everything
-        # Cost components are logged under cost calculation method
-        self.carbon_components["rerouting"] += self.gamma ** self.time_count * (
-                    carbon_emissions / (1 + emissions_from_condition_perc) - self.carbon_footprint_init)
-        self.carbon_components[
-            "condition"] += self.gamma ** self.time_count * carbon_emissions * emissions_from_condition_perc
-        self.carbon_components["actions"] += self.gamma ** self.time_count * carbon_emissions_from_actions
-        self.carbon_components["total"] += self.gamma ** self.time_count * (
-                    carbon_emissions - self.carbon_footprint_init + carbon_emissions_from_actions)
+            # Log everything
+            # Cost components are logged under cost calculation method
+            self.carbon_components["rerouting"] += self.gamma ** self.time_count * (
+                        carbon_emissions / (1 + emissions_from_condition_perc) - self.carbon_footprint_init)
+            self.carbon_components[
+                "condition"] += self.gamma ** self.time_count * carbon_emissions * emissions_from_condition_perc
+            self.carbon_components["actions"] += self.gamma ** self.time_count * carbon_emissions_from_actions
+            self.carbon_components["total"] += self.gamma ** self.time_count * (
+                        carbon_emissions - self.carbon_footprint_init + carbon_emissions_from_actions)
 
-        self.convenience_components["travel_time"] -= self.gamma ** self.time_count * (
+
+            # Calculate costs for carbon emissions
+            step_cost[1] = (carbon_emissions - self.carbon_footprint_init) + carbon_emissions_from_actions
+
+        if self.is_objective_active[2]:
+            # Calculate the total travel time
+            # step_cost[2] = - (np.sum(total_travel_time) - np.sum(self.TSTT_init))
+            step_cost[2] = self._compute_user_cost(comp_traffic)
+            self.convenience_components["user_cost"] += self.gamma ** self.time_count * step_cost[2]
+
+            self.convenience_components["travel_time"] -= self.gamma ** self.time_count * (
                     np.sum(total_travel_time) - np.sum(self.TSTT_init))
-
-        # Calculate costs for carbon emissions
-        step_cost[1] = (carbon_emissions - self.carbon_footprint_init) + carbon_emissions_from_actions
-
-        # Calculate the total travel time
-        # step_cost[2] = - (np.sum(total_travel_time) - np.sum(self.TSTT_init))
-        step_cost[2] = self._compute_user_cost(comp_traffic)
-        self.convenience_components["user_cost"] += self.gamma ** self.time_count * step_cost[2]
 
         # Updating the ongoing actions
         self.act_ongoing = act_ongoing_tmp

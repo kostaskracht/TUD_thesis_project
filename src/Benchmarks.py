@@ -31,13 +31,13 @@ class Benchmarks:
 
         self.timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
-    def execute_benchmarks(self):
+    def execute_benchmarks(self, output_dir="outputs/benchmarks"):
         """
         This method serves as a wrapper to execute the benchmarks multiple times
         """
 
         for mode in self.modes:
-            self.output_dir = f"outputs/benchmarks/{mode}_{self.timestamp}/"
+            self.output_dir = f"{output_dir}/benchmarks/{mode}_{self.timestamp}/"
 
             if not os.path.exists(self.output_dir):
                 os.makedirs(self.output_dir)

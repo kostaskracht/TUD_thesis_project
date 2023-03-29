@@ -11,6 +11,7 @@ import seaborn as sns
 import cvxpy as cp
 import matplotlib.pyplot as plt
 import numpy as np
+import yaml
 
 # import wandb as wb
 from utils import random_weights, hypervolume, policy_evaluation_mo, sparsity
@@ -59,11 +60,12 @@ class OLS:
             self.queue.append((float("inf"), w))
 
         self.timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
-        self.output_dir = f"src/ols/outputs/{self.timestamp}/"
+        self.output_dir = f"outputs/ols/{self.timestamp}"
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
-            os.makedirs(self.output_dir + "ols")
-            os.makedirs(self.output_dir + "figs")
+            os.makedirs(self.output_dir + "/logs")
+            os.makedirs(self.output_dir + "/figs")
+            os.makedirs(self.output_dir + "/iters")
 
     # Select the next weight to process. It will be the first weight in the queue
     def next_w(self) -> np.ndarray:
@@ -456,7 +458,7 @@ class OLS:
         ax.set_ylabel("$\psi^{\pi}_{2}$ (Lifecycle carbon emissions)")
 
         if flag_3d:
-            ax.set_zlabel("$\psi^{\pi}_{3}$ (Total travel time)")
+            ax.set_zlabel("$\psi^{\pi}_{3}$ (User cost)")
 
         sns.despine()
         plt.grid(alpha=0.25)
@@ -497,7 +499,7 @@ class OLS:
 
         # tight layout
         fig.update_layout(margin=dict(l=0, r=0, b=0, t=0))
-        fig.write_html(f"{self.output_dir}/ccs_dst_interactive.html")
+        fig.write_html(f"{self.output_dir}/figs/ccs_dst_interactive.html")
         fig.show()
 
 
@@ -512,12 +514,12 @@ def find_closest_run(prev_runs_metadata, w):
     return prev_runs_metadata[closest_run]
 
 
-def solve(w, prev_runs_metadata, reuse_mode):
+def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_FILE=None):
 
     # sys.stdout = open(os.devnull, 'w')
 
-
-    ppo = MindmapPPOMultithread(quiet=True)
+    ppo_output_dir = f"{ols_out_dir}/ppo"
+    ppo = MindmapPPOMultithread(quiet=True, param_file=MODEL_FILE, env_file=ENV_FILE, output_dir=ppo_output_dir)
     benchmarks = Benchmarks()
 
     enable_ppo = True
@@ -537,7 +539,7 @@ def solve(w, prev_runs_metadata, reuse_mode):
         logging.info(f"Saving benchmark execution under {benchmarks.timestamp}")
 
         logging.info(f"Executing CBM:")
-        cbm_value, cbm_values = benchmarks.execute_benchmarks()
+        cbm_value, cbm_values = benchmarks.execute_benchmarks(output_dir=ols_out_dir)
         logging.info(f"CBM return for weights: {benchmarks.env.w_rewards} is {cbm_value}")
 
         if cap_ppo:
@@ -548,7 +550,6 @@ def solve(w, prev_runs_metadata, reuse_mode):
         max_val = None
 
     if enable_ppo:
-        logging.info(f"Begin execution with weights: {ppo.env.w_rewards}")
         logging.info(f"Saving PPO execution under {ppo.timestamp}")
         # if ppo.env.w_rewards[0] == 1.0:
         #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
@@ -565,7 +566,7 @@ def solve(w, prev_runs_metadata, reuse_mode):
 
         # Keep the best weight and output dir of current run for the next one
         best_episode = ppo.best_weight
-        output_dir = ppo.checkpoint_dir + ppo.timestamp + "/"
+        output_dir = ppo.checkpoint_dir #+ ppo.timestamp + "/"
 
         logging.info(f"Best return from testing rounds was {ppo.best_result}")
 
@@ -585,22 +586,24 @@ def solve(w, prev_runs_metadata, reuse_mode):
         # values[i] = ppo.critic(init_observations).detach().numpy()
 
         return values[:len(w)], \
-            prev_runs_metadata, \
-            writer
+            prev_runs_metadata
 
     else:
         logging.info(f"Returning the CBM value")
-        return cbm_values[:len(w)], {}, ""
+        return cbm_values[:len(w)], {}
 
-if __name__ == "__main__":
 
-    os.chdir("../")
+def execute_OLS(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001, continue_execution=False):
 
-    reuse_mode = "full"
-    continue_execution = False
-    file_to_load = "src/ols/outputs/20230307144052_078/ols/iter_3.json"
+    logging.info(f"OLS execution started with env file {env_file} and model file {model_file}")
+    logging.info(f"OLS execution started with reuse mode {reuse_mode}")
+    logging.info(f"OLS execution started with epsilon {epsilon}")
+
+    logging.info(f"OLS execution started with continue execution {continue_execution}")
+
+    file_to_load = "outputs/ols/20230327125850_642/iters/iter_1.json"
     m = 3 #number of objectives
-    ols = OLS(m=m, epsilon=0.0001) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
+    ols = OLS(m=m, epsilon=epsilon) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_runs_metadata = {}
 
     # Begging with logging
@@ -608,7 +611,7 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            logging.FileHandler(f"src/ols/logs/{ols.timestamp}.log"),
+            logging.FileHandler(f"{ols.output_dir}/logs/{ols.timestamp}.log"),
             logging.StreamHandler(sys.stdout)
         ]
     )
@@ -643,7 +646,7 @@ if __name__ == "__main__":
         logging.info(f"==============================================================================")
         logging.info(f"Beginning OLS iteration {ols.iteration}")
 
-        value, prev_runs_metadata, _ = solve(w, prev_runs_metadata, reuse_mode)
+        value, prev_runs_metadata = solve(w, ols.output_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=model_file, ENV_FILE=env_file)
         logging.info(f"Value from PPO execution: {value}")
         ols.add_solution(value, w)
         # Plot the convex coverage set
@@ -657,7 +660,7 @@ if __name__ == "__main__":
                        "queue": ols.queue,
                        "iteration": ols.iteration
                        }
-        with open(f'{ols.output_dir}ols/iter_{ols.iteration}.json', "w") as f:
+        with open(f'{ols.output_dir}/iters/iter_{ols.iteration}.json', "w") as f:
             json.dump(output_dict, f, cls=NumpyEncoder)
 
 
@@ -679,3 +682,48 @@ if __name__ == "__main__":
 
     if len(ols.ccs[0]) > 2:
         ols.plot_interactive()
+
+    return ols
+
+if __name__ == "__main__":
+    os.chdir("../")
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
+
+    model_file = "src/model_params_mt.yaml"
+    env_file = "environments/env_params.yaml"
+    reuse_mode = "partial"
+    epsilon = 0.0001
+    continue_execution = False
+    message = ""
+
+    # Update env file parameters
+    new_env_params = {
+    "seed": 1234
+    }
+
+    # Update model file parameters
+    new_model_params = {
+    "seed": 1234
+    }
+
+    files_dict = {env_file: new_env_params, model_file: new_model_params}
+
+    new_filenames = []
+    for filename, new_params in files_dict.items():
+        # Update the yaml files
+        new_filename = filename.replace(".yaml", f"_{timestamp}.yaml")
+        with open(filename, 'r') as outfile:
+            file_dict = yaml.safe_load(outfile)
+            for key, value in new_params.items():
+                file_dict[key] = value
+        with open(new_filename, 'w+') as outfile:
+            yaml.dump(file_dict, outfile, default_flow_style=False)
+
+        new_filenames.append(new_filename)
+        print(f"{new_filename}")
+
+    ols = execute_OLS(model_file=new_filenames[1], env_file=new_filenames[0], reuse_mode=reuse_mode, epsilon=epsilon)
+
+    f = open(f"{ols.output_dir}/logs/README", "w")
+    f.write(message)
+    f.close()

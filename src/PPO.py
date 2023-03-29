@@ -122,10 +122,12 @@ class MindmapActor(nn.Module):
         super(MindmapActor, self).__init__()
 
         # Configure save directory
-        self.checkpoint_folder = f"{checkpoint_dir}{timestamp}/"
+        self.checkpoint_dir = checkpoint_dir
         self.checkpoint_suffix = checkpoint_suffix
-        if not os.path.exists(self.checkpoint_folder):
-            os.makedirs(self.checkpoint_folder)
+
+        # self.checkpoint_folder = f"{checkpoint_dir}{timestamp}/"
+        # if not os.path.exists(self.checkpoint_folder):
+        #     os.makedirs(self.checkpoint_folder)
 
         # Initialize environment values
         self.num_components = num_components
@@ -208,7 +210,7 @@ class MindmapActor(nn.Module):
         return dist
 
     def save_checkpoint(self, episode):
-        checkpoint_path = f"{self.checkpoint_folder}ep{episode}_{self.checkpoint_suffix}.pth"
+        checkpoint_path = f"{self.checkpoint_dir}/ep{episode}_{self.checkpoint_suffix}.pth"
         th.save(self.state_dict(), checkpoint_path)
 
     def load_checkpoint(self, checkpoint_dir, checkpoint_ep, reuse_mode):
@@ -279,23 +281,29 @@ class MindmapPPO:
     The main class containing the MindmapPPO algorithm
     """
 
-    def __init__(self, param_file="src/model_params.yaml", quiet=False):
+    def __init__(self, param_file="src/model_params.yaml", quiet=False, env_file="environments/env_params.yaml",
+                 output_dir="outputs/ppo"):
 
         # Get timestamp of the execution
         self.timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
-        self.output_dir = f"outputs/model_outputs/{self.timestamp}/"
+        self.output_dir = f"{output_dir}/{self.timestamp}"
+        self.checkpoint_dir = f"{self.output_dir}/model_weights/"
+        self.model_outputs = f"{self.output_dir}/model_outputs/"
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
+            os.makedirs(f"{self.model_outputs}")
+            os.makedirs(f"{self.checkpoint_dir}")
 
         # Load parameters
         self.quiet = quiet
         self.param_file = param_file
         self.param_dict = self._load_yaml_file()
+        self.env_file = env_file
 
         # Create class attributes from parameters dictionary
         self._load_params()
 
-        self.env = gym.make(self.env_name, quiet=True)
+        self.env = gym.make(self.env_name, quiet=True, param_file=self.env_file)
         self.env.reset()
 
         if self.seed:
@@ -305,8 +313,8 @@ class MindmapPPO:
         self.device = th.device('cuda' if th.cuda.is_available() else 'cpu')
 
         # output the yaml files to the output dict
-        shutil.copy(self.env.param_file, self.output_dir)
-        shutil.copy(self.param_file, self.output_dir)
+        shutil.copy(self.env.param_file, f"{self.model_outputs}")
+        shutil.copy(self.param_file, f"{self.model_outputs}")
 
         # Initialize data structures to track reward and actions throughout execution
         self.total_rewards = []
@@ -443,9 +451,9 @@ class MindmapPPO:
 
         # Save the retrieved results (actions, rewards)
         # np.save(self.output_dir + "actions.npy", self.total_actions)
-        np.save(self.output_dir + "rewards.npy", self.total_rewards)
-        np.save(self.output_dir + "actions_test.npy", self.total_actions_test)
-        np.save(self.output_dir + "rewards_test.npy", self.total_rewards_test)
+        np.save(f"{self.model_outputs}" + "rewards.npy", self.total_rewards)
+        np.save(f"{self.model_outputs}" + "actions_test.npy", self.total_actions_test)
+        np.save(f"{self.model_outputs}" + "rewards_test.npy", self.total_rewards_test)
 
         self.clear_bad_checkpoints()
 
@@ -812,9 +820,9 @@ class MindmapPPO:
         episode_to_keep2 = self.n_epochs - 1
 
         # Remove all other episode weights
-        for filee in os.listdir(self.actor.checkpoint_folder):
+        for filee in os.listdir(self.actor.checkpoint_dir):
             if ("ep" + str(episode_to_keep1) + "_" not in filee) and ("ep" + str(episode_to_keep2) + "_" not in filee):
-                os.remove(self.actor.checkpoint_folder + filee)
+                os.remove(self.actor.checkpoint_dir + filee)
 
         self.best_result = np.max(self.total_rewards_test)
         self.best_weight = episode_to_keep1

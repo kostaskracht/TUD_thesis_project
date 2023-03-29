@@ -251,13 +251,16 @@ class MindmapRolloutBufferMultithread:
 class Runner(mp.Process):
     """ Implements a simple single-thread runner class. """
 
-    def __init__(self, name, buffer, pipe, num_episodes, actor, critic, w_rewards, env_name, log_interval, seed=None, quiet=False):
+    def __init__(self, name, buffer, pipe, num_episodes, actor, critic, w_rewards, env_name, log_interval, seed=None, quiet=False, env_file=None):
 
         mp.Process.__init__(self, name=name)
         print(f"Initializing process {name}")
 
         # Initialize the environment for the runner
-        self.env = gym.make(env_name, quiet=True)
+        if env_file:
+            self.env = gym.make(env_name, quiet=True, param_file=env_file)
+        else:
+            self.env = gym.make(env_name, quiet=True)
         self.env.reset()
         # The updated rewards for this execution
         self.env.rewards = w_rewards
@@ -383,9 +386,10 @@ class MindmapPPOMultithread(MindmapPPO):
     The main class containing the MindmapPPO algorithm
     """
 
-    def __init__(self, param_file="src/model_params_mt.yaml", quiet=False):
+    def __init__(self, param_file="src/model_params_mt.yaml", quiet=False, env_file="environments/env_params.yaml",
+                 output_dir="outputs/ppo"):
 
-        super().__init__(param_file, quiet)
+        super().__init__(param_file, quiet, env_file, output_dir)
 
         if not self.multirunner:
             self.processes = 1
@@ -395,30 +399,30 @@ class MindmapPPOMultithread(MindmapPPO):
                                                       self.env.num_objectives, self.env.gamma, self.lam,
                                                       self.processes, self.device)
 
-    def run(self, exec_mode, checkpoint=None, reuse_mode="full", max_val=None):
+    def run(self, exec_mode, checkpoint=None, reuse_mode="no", max_val=None):
 
         # Configure the execution mode
         if exec_mode == "train":
-            self.run_training(max_val=max_val)
+            self.run_training(max_val=max_val, env_file=self.env_file)
             return
         elif exec_mode == "test":
             if checkpoint:
                 self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
                 self.actor_old.load_state_dict(self.actor.state_dict())
                 self.critic_old.load_state_dict(self.critic.state_dict())
-            avg_returns = self.run_testing(test_episodes=50)
+            avg_returns = self.run_testing(test_episodes=50, env_file=self.env_file)
             return avg_returns
 
         elif exec_mode == "continue_training":
             self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
             self.actor_old.load_state_dict(self.actor.state_dict())
             self.critic_old.load_state_dict(self.critic.state_dict())
-            self.run_training(max_val=max_val)
+            self.run_training(max_val=max_val, env_file=self.env_file)
             return
         else:
             raise ValueError("Choose an execution mode between train, continue_train and test.")
 
-    def run_training(self, max_val=None):
+    def run_training(self, max_val=None, env_file=None):
 
         # starting agents and pipes
         agents = []
@@ -435,7 +439,7 @@ class MindmapPPOMultithread(MindmapPPO):
         for agent_id in range(self.processes):
             p_start, p_end = mp.Pipe()
             agent = Runner(str(agent_id), self.buffer, p_end, self.n_epochs, self.actor_old, self.critic_old,
-                           self.env.w_rewards, self.env_name, self.log_interval, seed=self.seed, quiet=self.quiet)
+                           self.env.w_rewards, self.env_name, self.log_interval, seed=self.seed, quiet=self.quiet, env_file=env_file)
             agent.start()
             agents.append(agent)
             pipes.append(p_start)
@@ -528,7 +532,7 @@ class MindmapPPOMultithread(MindmapPPO):
 
         return
 
-    def run_testing(self, test_episodes):
+    def run_testing(self, test_episodes, env_file=None):
         msg_send = MsgTrainMode(False)
         test_returns = {}
         test_actions = {}
@@ -538,7 +542,7 @@ class MindmapPPOMultithread(MindmapPPO):
 
         p_start, p_end = mp.Pipe()
         agent = Runner(str(0), self.buffer, p_end, 2, self.actor_old, self.critic_old,
-                       self.env.w_rewards, self.env_name, self.log_interval, self.seed)
+                       self.env.w_rewards, self.env_name, self.log_interval, self.seed, env_file=env_file)
         agent.start()
 
         counter = 0
@@ -719,9 +723,9 @@ class MindmapPPOMultithread(MindmapPPO):
 
         # Save the retrieved results (actions, rewards)
         # np.save(self.output_dir + "actions.npy", self.total_actions)
-        np.save(self.output_dir + "rewards.npy", self.total_rewards)
-        np.save(self.output_dir + "actions_test.npy", self.total_actions_test)
-        np.save(self.output_dir + "rewards_test.npy", self.total_rewards_test)
+        np.save(self.output_dir + "/rewards.npy", self.total_rewards)
+        np.save(self.output_dir + "/actions_test.npy", self.total_actions_test)
+        np.save(self.output_dir + "/rewards_test.npy", self.total_rewards_test)
 
         self.clear_bad_checkpoints()
 
@@ -737,4 +741,5 @@ if __name__ == "__main__":
     # checkpoint_ep = 10250, reuse_mode = "full"
     # ppo.run(exec_mode="test", checkpoint=("src/model_weights/20230316163006_289/", 10250))
     # ppo.run(exec_mode="continue_training", checkpoint=("src/model_weights/20230316163006_289/", 10500))
+    # ppo.run(exec_mode="continue_training", checkpoint=("outputs/ols/<ols_timestamp>/ppo/20230316163006_289/model_weights/", 10500))
     print(f"Total time {time.time() - start} seconds.")
