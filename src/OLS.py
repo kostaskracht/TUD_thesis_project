@@ -516,8 +516,6 @@ def find_closest_run(prev_runs_metadata, w):
 
 def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_FILE=None):
 
-    # sys.stdout = open(os.devnull, 'w')
-
     ppo_output_dir = f"{ols_out_dir}/ppo"
     ppo = MindmapPPOMultithread(quiet=True, param_file=MODEL_FILE, env_file=ENV_FILE, output_dir=ppo_output_dir)
     benchmarks = Benchmarks()
@@ -575,7 +573,7 @@ def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_F
 
         logging.info(f"Begin testing:")
         # Get the value of current execution
-        iters = ppo.test_n_epochs
+        iters = ppo.test_episodes
         n_obj = ppo.env.num_objectives
         # values = np.zeros((iters, n_obj))
         ppo.env.reset()
@@ -593,22 +591,16 @@ def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_F
         return cbm_values[:len(w)], {}
 
 
-def execute_OLS(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001, continue_execution=False):
-
-    logging.info(f"OLS execution started with env file {env_file} and model file {model_file}")
-    logging.info(f"OLS execution started with reuse mode {reuse_mode}")
-    logging.info(f"OLS execution started with epsilon {epsilon}")
-
-    logging.info(f"OLS execution started with continue execution {continue_execution}")
-
-    file_to_load = "outputs/ols/20230327125850_642/iters/iter_1.json"
-    m = 3 #number of objectives
-    ols = OLS(m=m, epsilon=epsilon) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
+def execute_OLS(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001, continue_execution=False,
+                file_to_load=None):
+    # file_to_load = "outputs/ols/20230327125850_642/iters/iter_1.json"
+    m = 3  # number of objectives
+    ols = OLS(m=m, epsilon=epsilon)  # , min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_runs_metadata = {}
 
     # Begging with logging
     logging.basicConfig(
-        level=logging.INFO,
+        level="INFO",
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.FileHandler(f"{ols.output_dir}/logs/{ols.timestamp}.log"),
@@ -616,6 +608,13 @@ def execute_OLS(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001,
         ]
     )
 
+    logging.info(f"OLS execution log file is under {ols.output_dir}/logs/{ols.timestamp}.log")
+
+    logging.info(f"OLS execution started with env file {env_file} and model file {model_file}")
+    logging.info(f"OLS execution started with reuse mode {reuse_mode}")
+    logging.info(f"OLS execution started with epsilon {epsilon}")
+
+    logging.info(f"OLS execution started with continue execution {continue_execution}")
 
     # Set up the tensorboard dashboard for OLS execution
     logging.info(f"Began OLS execution {ols.timestamp}")

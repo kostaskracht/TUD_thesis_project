@@ -17,7 +17,7 @@ import logging
 logging.disable(logging.WARNING)
 # os.chdir("../../../..")
 
-episodes = 50
+episodes = 10000
 results = []
 all_costs = []
 
@@ -25,7 +25,9 @@ ppo = MindmapPPOMultithread()
 # ppo._load_model_weights(checkpoint_dir="src/model_weights/20230316163006_289/",
 #                         checkpoint_ep=10250, reuse_mode="full")
 
-mode = "cbm" # ppo, cbm, random, other
+mode = "random" # ppo, cbm, random, other
+
+rewards_basket = []
 
 for ep in range(episodes):
 
@@ -86,6 +88,7 @@ for ep in range(episodes):
             pass
 
         states, step_cost, done, metadata = env.step(env.actions[cur_action])
+        rewards_basket.append(step_cost)
 
         actions.append(cur_action)
         episode_cost += (env.gamma ** (i-1)) * step_cost[0] * env.norm_factor[0]
@@ -123,6 +126,12 @@ for ep in range(episodes):
           )
 
 print(f"Average cost is {np.mean(all_costs)}")
+
+rew_bas = np.stack(rewards_basket)
+means = np.mean(rew_bas, axis=0)
+std = np.std(rew_bas, axis=0)
+minn = np.min(rew_bas, axis=0)
+maxx = np.max(rew_bas, axis=0)
 
     # np.save("actions_env_case4.npy", actions)
     # np.save("costs_env_case4.npy", costs)

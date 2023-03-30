@@ -112,6 +112,25 @@ class ThesisEnv(gym.Env):
         else:
             self.norm_factor = np.asarray(self.norm_factor)
 
+        # SOS - A different normalization is computed for every runner!
+        if not self.std_reward or not self.max_reward:
+            rew_basket = []
+            self.std_reward = np.ones(self.num_objectives)
+            self.max_reward = np.zeros(self.num_objectives)
+            for _ in range(self.norm_episodes):
+                self.reset()
+                for i in range(self.timesteps):
+                    cur_action = np.random.choice(np.arange(self.num_actions), size=self.num_components, replace=True,)
+                    _, step_cost, _, _ = self.step(self.actions[cur_action])
+                    rew_basket.append(step_cost)
+            self.reset()
+
+            self.std_reward = np.std(rew_basket, axis=0)
+            self.max_reward = np.max(rew_basket, axis=0)
+            self.min_reward = np.min(rew_basket, axis=0)
+            self.mean_reward = np.mean(rew_basket, axis=0)
+            print(f"Normalization values: std: {self.std_reward}, max: {self.max_reward}")
+
     def step(self, action: np.ndarray):
         """
         This method performs a step in the environment, given a set of actions (one for each
@@ -284,13 +303,13 @@ class ThesisEnv(gym.Env):
         # Log results
         if not self.quiet:
             print(f"Timestep: {self.time_count - 1}, Action: {action}, Cost: "
-                  f"{step_cost / self.norm_factor}")
+                  f"{self._normalize_rewards(step_cost)}")
 
         # Visualize the states of a component
         if self.plot_states:
             self._visualize_states(0, action, save=True)
 
-        return self.states_nn, step_cost / self.norm_factor, done, \
+        return self.states_nn, self._normalize_rewards(step_cost), done, \
             {"actions": action,
              "costs": step_cost,
              "states_iri": self.states_iri,
@@ -864,6 +883,20 @@ class ThesisEnv(gym.Env):
 
         update_dist = states_dist * obs_dist[cur_action_fin, :, obs]
         return update_dist / np.sum(update_dist)
+
+    def _normalize_rewards(self, rewards):
+        if self.norm_method == "standard":
+            return (rewards - self.max_reward) / self.std_reward
+        elif self.norm_method == "scaled":
+            return rewards / self.norm_factor
+        elif self.norm_method == "none":
+            return rewards
+        else:
+            raise ValueError("Unknown normalization method")
+
+
+
+
 
 
 if __name__ == "__main__":

@@ -128,6 +128,9 @@ class MindmapRolloutBufferMultithread:
     def finish_trajectory(self, last_value=0, w_rewards=None):
         # Finish the trajectory by computing advantage estimates and rewards-to-go
         path_slice = slice(self.trajectory_start_index, self.counter)
+
+        # self.reward_buffer[path_slice] = th.einsum('ij,j->ij', self.reward_buffer[path_slice] - maxx, 1/std)
+
         rewards = np.append(self.reward_buffer.detach().numpy()[path_slice], [[last_value] * self.num_objectives], axis=0)
 
         values = np.append(self.value_buffer.detach().numpy()[path_slice], [[last_value] * self.num_objectives], axis=0)
@@ -161,101 +164,6 @@ class MindmapRolloutBufferMultithread:
         # for val in reversed(x[:-1]):
         #     summ.append(summ[-1] * discount + val)
         # return summ[::-1]
-
-
-# class MindmapRolloutBufferMultithread_no_mem_share:
-#     """
-#     Buffer that stores the trajectory of the current episode. After the end of the episode it
-#     calculates the advantage.
-#
-#     :param num_states (int): Number of discrete states per component
-#     :param num_actions (int): Number of environmental actions
-#     :param num_components (int): Number of discrete components
-#     :param timesteps (int): Number of timesteps to in the environment
-#     :param gamma (float): Discount factor
-#     :param lam (float): Lambda parameter
-#
-#     """
-#     def __init__(self, num_states, num_components, timesteps, num_objectives, gamma=0.95, lam=0.95, processes=1, device="cpu"):
-#         # Buffer initialization
-#         self.num_components = num_components
-#         self.num_states = num_states
-#         self.num_objectives = num_objectives
-#         # The observation dimension equals to components*(states_num)
-#         # IRI is stationary, so state embedding only consists of IRI
-#         self.observation_dimensions = self.num_components * (self.num_states) + 1
-#
-#         self.processes = processes
-#         self.size = timesteps * self.processes
-#         self.gamma = gamma
-#         self.lam = lam
-#
-#         # Reset buffer
-#         self.reset_buffer()
-#
-#     def reset_buffer(self) -> None:
-#         self.observation_buffer = np.zeros((self.size, self.observation_dimensions), dtype=np.float32)
-#         self.action_buffer = np.zeros((self.size, self.num_components), dtype=np.float32)
-#         self.advantage_buffer = np.zeros(self.size, dtype=np.float32)
-#         self.reward_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
-#         self.return_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
-#         self.value_buffer = np.zeros((self.size, self.num_objectives), dtype=np.float32)
-#         self.logprobability_buffer = np.zeros(self.size, dtype=np.float32)
-#         self.counter, self.trajectory_start_index = 0, 0
-#
-#     def store(self, observation, action, reward, value, logprobability):
-#         """
-#         Append one step of agent-environment interaction
-#         :param observation: ndarray - Believe matrix (num_components x (num_states + 1))
-#         :param action: ndarray - Actions for the specific timestep (num_components)
-#         :param reward: float - Reward for the specific timestep
-#         :param value: float - Value for the specific timestep
-#         :param logprobability: ndarray - Log probabilities for selected actions (num_components x num_states)
-#         """
-#         self.observation_buffer[self.counter] = observation
-#         self.action_buffer[self.counter] = action
-#         self.reward_buffer[self.counter] = reward
-#         self.value_buffer[self.counter] = value
-#         self.logprobability_buffer[self.counter] = logprobability.detach()
-#         self.counter += 1
-#
-#     def finish_trajectory(self, last_value=0, w_rewards=None):
-#         # Finish the trajectory by computing advantage estimates and rewards-to-go
-#         path_slice = slice(self.trajectory_start_index, self.counter)
-#         rewards = np.append(self.reward_buffer[path_slice], [[last_value] * self.num_objectives], axis=0)
-#         # rewards_dot = np.einsum('ij,j->i', rewards, w_rewards)
-#
-#         values = np.append(self.value_buffer[path_slice], [[last_value] * self.num_objectives], axis=0)
-#         values_dot = np.einsum('ij,j->i', values, w_rewards)
-#         # deltas = (rewards_dot + self.gamma * np.roll(values_dot, -1) - values_dot)[:-1]
-#
-#         # self.advantage_buffer[path_slice] = self.discounted_cumulative_sums(deltas, self.gamma * self.lam)
-#         self.return_buffer[path_slice] = self.discounted_cumulative_sums(rewards, self.gamma)[:-1]
-#         returns_dot = np.einsum('ij,j->i', self.return_buffer[path_slice], w_rewards)
-#
-#         # Simplification
-#         self.advantage_buffer[path_slice] = returns_dot - values_dot[:-1]
-#         self.trajectory_start_index = self.counter
-#
-#     def get(self):
-#         # Get all data of the buffer
-#         return (
-#             self.observation_buffer,
-#             self.action_buffer,
-#             self.advantage_buffer,
-#             self.return_buffer,
-#             self.logprobability_buffer,
-#         )
-#
-#     @staticmethod
-#     def discounted_cumulative_sums(x, discount):
-#         # Discounted cumulative sums of vectors for computing rewards-to-go and advantage estimates
-#         return lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
-#         # This is equivalent to:
-#         # summ = [x[-1]]
-#         # for val in reversed(x[:-1]):
-#         #     summ.append(summ[-1] * discount + val)
-#         # return summ[::-1]
 
 
 class Runner(mp.Process):
@@ -420,7 +328,7 @@ class MindmapPPOMultithread(MindmapPPO):
                 self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
                 self.actor_old.load_state_dict(self.actor.state_dict())
                 self.critic_old.load_state_dict(self.critic.state_dict())
-            avg_returns = self.run_testing(test_episodes=50, env_file=self.env_file)
+            avg_returns = self.run_testing(test_episodes=self.test_episodes, env_file=self.env_file)
             return avg_returns
 
         elif exec_mode == "continue_training":
@@ -583,161 +491,161 @@ class MindmapPPOMultithread(MindmapPPO):
         agent.terminate()
         return avg_returns_obj
 
-    def execute_environment(self, test_episodes=50):
+    # def execute_environment(self, test_episodes=50):
+    #
+    #     results = []
+    #     all_costs = []
+    #     all_costs_buffer = []
+    #     for ep in range(test_episodes):
+    #
+    #         # Sample policy check
+    #
+    #         all_states = []
+    #
+    #         # Initialize tables for visualization
+    #         actions = []
+    #         costs = []
+    #         states_iri = []
+    #         traffic = []
+    #         episode_cost = np.zeros(3)
+    #
+    #         # total_urgent_comps = 0
+    #
+    #         import time
+    #
+    #         self.env.reset()
+    #         # self.env.num_traffic_assignments = 0
+    #         begin_time = time.time()
+    #         for i in range(1, 21):
+    #             # for i in range(1, 4):
+    #
+    #             step_time = time.time()
+    #
+    #             # Load action from PPO output
+    #             cur_action, _ = ppo.actor.sample_action_actor(self.env.states_nn, ep=1)
+    #             # states_init = self.env.states_nn
+    #
+    #             states, step_cost, done, metadata = self.env.step(self.env.actions[cur_action])
+    #
+    #             # ppo.buffer.store(states_init, cur_action, step_cost, 1, th.tensor(1))
+    #
+    #             actions.append(cur_action)
+    #             costs.append(step_cost)
+    #             episode_cost += (self.env.gamma ** (i - 1)) * step_cost[0] * self.env.norm_factor[0]
+    #
+    #         # observation_tensor = th.tensor(np.array([states]), dtype=th.float).to(
+    #         #     self.device)
+    #         # last_value = 0 if done else th.dot(self.critic(observation_tensor.reshape(1, -1)).item(),
+    #         #                                    self.env.w_rewards)
+    #         # self.buffer.finish_trajectory(last_value, self.env.w_rewards)
+    #         results.append([ep, time.time() - begin_time, self.env.num_traffic_assignments])
+    #         # print(f"Episode {ep}: {time.time() - begin_time}, {env.num_traffic_assignments}")
+    #
+    #         all_costs.append(episode_cost[0])
+    #         # all_costs_buffer.append(ppo.buffer.return_buffer[0])
+    #
+    #         act, counts = np.unique(np.stack(actions), return_counts=True)
+    #         print(f"Episode {ep}: "
+    #               f"Total reward is: {episode_cost[0]}"
+    #               f" Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.env.timesteps)))}"
+    #               # f"Total urgent comps {total_urgent_comps}"
+    #               )
+    #
+    #     print(f"Average cost is {np.mean(all_costs)}")
+    #     return np.mean(all_costs)
 
-        results = []
-        all_costs = []
-        all_costs_buffer = []
-        for ep in range(test_episodes):
-
-            # Sample policy check
-
-            all_states = []
-
-            # Initialize tables for visualization
-            actions = []
-            costs = []
-            states_iri = []
-            traffic = []
-            episode_cost = np.zeros(3)
-
-            # total_urgent_comps = 0
-
-            import time
-
-            self.env.reset()
-            # self.env.num_traffic_assignments = 0
-            begin_time = time.time()
-            for i in range(1, 21):
-                # for i in range(1, 4):
-
-                step_time = time.time()
-
-                # Load action from PPO output
-                cur_action, _ = ppo.actor.sample_action_actor(self.env.states_nn, ep=1)
-                # states_init = self.env.states_nn
-
-                states, step_cost, done, metadata = self.env.step(self.env.actions[cur_action])
-
-                # ppo.buffer.store(states_init, cur_action, step_cost, 1, th.tensor(1))
-
-                actions.append(cur_action)
-                costs.append(step_cost)
-                episode_cost += (self.env.gamma ** (i - 1)) * step_cost[0] * self.env.norm_factor[0]
-
-            # observation_tensor = th.tensor(np.array([states]), dtype=th.float).to(
-            #     self.device)
-            # last_value = 0 if done else th.dot(self.critic(observation_tensor.reshape(1, -1)).item(),
-            #                                    self.env.w_rewards)
-            # self.buffer.finish_trajectory(last_value, self.env.w_rewards)
-            results.append([ep, time.time() - begin_time, self.env.num_traffic_assignments])
-            # print(f"Episode {ep}: {time.time() - begin_time}, {env.num_traffic_assignments}")
-
-            all_costs.append(episode_cost[0])
-            # all_costs_buffer.append(ppo.buffer.return_buffer[0])
-
-            act, counts = np.unique(np.stack(actions), return_counts=True)
-            print(f"Episode {ep}: "
-                  f"Total reward is: {episode_cost[0]}"
-                  f" Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.env.timesteps)))}"
-                  # f"Total urgent comps {total_urgent_comps}"
-                  )
-
-        print(f"Average cost is {np.mean(all_costs)}")
-        return np.mean(all_costs)
-
-    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
-        # if w_rewards:
-        #     self.env.w_rewards = w_rewards
-
-        # Iterate over episodes
-        # If we are in training mode
-        if (exec_mode == "train") or (exec_mode == "continue_training"):
-
-            if exec_mode == "continue_training":
-                self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
-
-            if not self.quiet: print(f"Starting training.")
-            for episode in range(self.n_epochs):
-                # if not self.quiet:
-                print(f"Episode {episode}:")
-                self.buffer.reset_buffer()
-                transition_buffers_list, metadata_dicts_list = self.runner.run(self.env.timesteps, blueprint=self.buffer,
-                                                          transition_buffer_dict={"transition_buffer": self.buffer})
-
-                if isinstance(transition_buffers_list, dict):
-                    transition_buffers_list = [transition_buffers_list]
-
-                buff_count = 0
-                for buffer in transition_buffers_list:
-                    buff = buffer["transition_buffer"]
-
-                    self.buffer.observation_buffer[
-                    buff_count:buff_count + self.env.timesteps] = buff.observation_buffer[:self.env.timesteps]
-                    self.buffer.action_buffer[buff_count:buff_count + self.env.timesteps] = buff.action_buffer[
-                                                                                            :self.env.timesteps]
-                    self.buffer.advantage_buffer[buff_count:buff_count + self.env.timesteps] = buff.advantage_buffer[
-                                                                                               :self.env.timesteps]
-                    self.buffer.reward_buffer[buff_count:buff_count + self.env.timesteps] = buff.reward_buffer[
-                                                                                            :self.env.timesteps]
-                    self.buffer.return_buffer[buff_count:buff_count + self.env.timesteps] = buff.return_buffer[
-                                                                                            :self.env.timesteps]
-                    self.buffer.value_buffer[buff_count:buff_count + self.env.timesteps] = buff.value_buffer[
-                                                                                           :self.env.timesteps]
-                    self.buffer.logprobability_buffer[
-                    buff_count:buff_count + self.env.timesteps] = buff.logprobability_buffer[:self.env.timesteps]
-                    buff_count += self.env.timesteps
-
-                #                 _ = self.run_episode(episode, train_phase="learn")
-                # log everything that is needed
-                if episode % self.checkpoint_interval == 0 or episode == self.n_epochs - 1:
-                    self.actor.save_checkpoint(episode)
-                    self.critic.save_checkpoint(episode)
-
-                # returns = np.sum(np.einsum('ij,j->i', buff.reward_buffer, self.env.w_rewards * self.env.norm_factor))
-                returns = np.sum(buff.return_buffer[0] * self.env.w_rewards)
-                values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(), self.env.w_rewards)
-                # values = self.critic(th.Tensor(self.env.states_nn))
-                self.log_after_train_episode(episode, returns, values, metadata_dicts_list[-1])
-
-                # Train the two networks based on the experience of this episode
-                actor_loss, critic_loss = self.train()
-
-                self.log_after_training(episode, actor_loss, critic_loss)
-
-                if self.test_interval:
-                    if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
-                        if not self.quiet: print(f"Beginning test runs with current weights.")
-                        test_rewards = []
-                        for test_episode in range(self.test_n_epochs):
-                            test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
-                        if exec_mode != "test":
-                            self.total_rewards_test.append(np.mean(test_rewards))
-                            self.log_after_test_episode(np.mean(test_rewards), episode)
-
-                # CRITIC ERROR
-                # if np.sqrt(np.abs(critic_loss.detach().numpy()/returns)) < 0.01:
-                #     print(f"STOPPING EXECUTION DUE TO CONVERGENCE OF RETURNS AND VALUES IN EPISODE {episode}.")
-                #     print(f"Critic loss is {critic_loss.detach().numpy()} and returns are {returns}.")
-                #     break
-
-        elif exec_mode == "test":
-            self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
-
-            if not self.quiet: print(f"Starting testing")
-            for episode in range(self.test_n_epochs):
-                self.run_episode(episode, train_phase="test")
-        else:
-            raise ValueError(f"Execution mode {exec_mode} is not supported. Available options are " \
-                             "learn, test, continue_learning")
-
-        # Save the retrieved results (actions, rewards)
-        # np.save(self.output_dir + "actions.npy", self.total_actions)
-        np.save(self.output_dir + "/rewards.npy", self.total_rewards)
-        np.save(self.output_dir + "/actions_test.npy", self.total_actions_test)
-        np.save(self.output_dir + "/rewards_test.npy", self.total_rewards_test)
-
-        self.clear_bad_checkpoints()
+    # def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
+    #     # if w_rewards:
+    #     #     self.env.w_rewards = w_rewards
+    #
+    #     # Iterate over episodes
+    #     # If we are in training mode
+    #     if (exec_mode == "train") or (exec_mode == "continue_training"):
+    #
+    #         if exec_mode == "continue_training":
+    #             self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
+    #
+    #         if not self.quiet: print(f"Starting training.")
+    #         for episode in range(self.n_epochs):
+    #             # if not self.quiet:
+    #             print(f"Episode {episode}:")
+    #             self.buffer.reset_buffer()
+    #             transition_buffers_list, metadata_dicts_list = self.runner.run(self.env.timesteps, blueprint=self.buffer,
+    #                                                       transition_buffer_dict={"transition_buffer": self.buffer})
+    #
+    #             if isinstance(transition_buffers_list, dict):
+    #                 transition_buffers_list = [transition_buffers_list]
+    #
+    #             buff_count = 0
+    #             for buffer in transition_buffers_list:
+    #                 buff = buffer["transition_buffer"]
+    #
+    #                 self.buffer.observation_buffer[
+    #                 buff_count:buff_count + self.env.timesteps] = buff.observation_buffer[:self.env.timesteps]
+    #                 self.buffer.action_buffer[buff_count:buff_count + self.env.timesteps] = buff.action_buffer[
+    #                                                                                         :self.env.timesteps]
+    #                 self.buffer.advantage_buffer[buff_count:buff_count + self.env.timesteps] = buff.advantage_buffer[
+    #                                                                                            :self.env.timesteps]
+    #                 self.buffer.reward_buffer[buff_count:buff_count + self.env.timesteps] = buff.reward_buffer[
+    #                                                                                         :self.env.timesteps]
+    #                 self.buffer.return_buffer[buff_count:buff_count + self.env.timesteps] = buff.return_buffer[
+    #                                                                                         :self.env.timesteps]
+    #                 self.buffer.value_buffer[buff_count:buff_count + self.env.timesteps] = buff.value_buffer[
+    #                                                                                        :self.env.timesteps]
+    #                 self.buffer.logprobability_buffer[
+    #                 buff_count:buff_count + self.env.timesteps] = buff.logprobability_buffer[:self.env.timesteps]
+    #                 buff_count += self.env.timesteps
+    #
+    #             #                 _ = self.run_episode(episode, train_phase="learn")
+    #             # log everything that is needed
+    #             if episode % self.checkpoint_interval == 0 or episode == self.n_epochs - 1:
+    #                 self.actor.save_checkpoint(episode)
+    #                 self.critic.save_checkpoint(episode)
+    #
+    #             # returns = np.sum(np.einsum('ij,j->i', buff.reward_buffer, self.env.w_rewards * self.env.norm_factor))
+    #             returns = np.sum(buff.return_buffer[0] * self.env.w_rewards)
+    #             values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(), self.env.w_rewards)
+    #             # values = self.critic(th.Tensor(self.env.states_nn))
+    #             self.log_after_train_episode(episode, returns, values, metadata_dicts_list[-1])
+    #
+    #             # Train the two networks based on the experience of this episode
+    #             actor_loss, critic_loss = self.train()
+    #
+    #             self.log_after_training(episode, actor_loss, critic_loss)
+    #
+    #             if self.test_interval:
+    #                 if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
+    #                     if not self.quiet: print(f"Beginning test runs with current weights.")
+    #                     test_rewards = []
+    #                     for test_episode in range(self.test_n_epochs):
+    #                         test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
+    #                     if exec_mode != "test":
+    #                         self.total_rewards_test.append(np.mean(test_rewards))
+    #                         self.log_after_test_episode(np.mean(test_rewards), episode)
+    #
+    #             # CRITIC ERROR
+    #             # if np.sqrt(np.abs(critic_loss.detach().numpy()/returns)) < 0.01:
+    #             #     print(f"STOPPING EXECUTION DUE TO CONVERGENCE OF RETURNS AND VALUES IN EPISODE {episode}.")
+    #             #     print(f"Critic loss is {critic_loss.detach().numpy()} and returns are {returns}.")
+    #             #     break
+    #
+    #     elif exec_mode == "test":
+    #         self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
+    #
+    #         if not self.quiet: print(f"Starting testing")
+    #         for episode in range(self.test_n_epochs):
+    #             self.run_episode(episode, train_phase="test")
+    #     else:
+    #         raise ValueError(f"Execution mode {exec_mode} is not supported. Available options are " \
+    #                          "learn, test, continue_learning")
+    #
+    #     # Save the retrieved results (actions, rewards)
+    #     # np.save(self.output_dir + "actions.npy", self.total_actions)
+    #     np.save(self.output_dir + "/rewards.npy", self.total_rewards)
+    #     np.save(self.output_dir + "/actions_test.npy", self.total_actions_test)
+    #     np.save(self.output_dir + "/rewards_test.npy", self.total_rewards_test)
+    #
+    #     self.clear_bad_checkpoints()
 
 
 if __name__ == "__main__":

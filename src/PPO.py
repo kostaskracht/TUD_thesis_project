@@ -328,7 +328,7 @@ class MindmapPPO:
         # Initialize Rollout buffer
         self.buffer = MindmapRolloutBuffer(self.env.num_states_iri, self.env.num_actions,
                                            self.env.num_components, self.env.timesteps, self.env.num_objectives,
-                                           self.gamma, self.lam)
+                                           self.env.gamma, self.lam)
 
         # Initialize actor and critic networks
         self.actor = MindmapActor(self.env.num_components, self.env.num_states_iri,
@@ -413,125 +413,125 @@ class MindmapPPO:
 
         return action, prob, value
 
-    def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
-        # Iterate over episodes
-        # If we are in training mode
-        if (exec_mode == "train") or (exec_mode == "continue_training"):
-
-            if exec_mode == "continue_training":
-                self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
-
-            if not self.quiet: print(f"Starting training.")
-            for episode in range(self.n_epochs):
-                returns = self.run_episode(episode, train_phase="learn")
-                # log everything that is needed
-                if episode % self.checkpoint_interval == 0 or episode == self.n_epochs - 1:
-                    self.actor.save_checkpoint(episode)
-                    self.critic.save_checkpoint(episode)
-
-                values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(),
-                                self.env.w_rewards)
-                self.log_after_train_episode(episode, returns, values)
-
-                if self.test_interval:
-                    if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
-                        if not self.quiet: print(f"Beginning test runs with current weights.")
-                        test_rewards = []
-                        for test_episode in range(self.test_n_epochs):
-                            test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
-                        if self.save_in_files: self.total_rewards_test.append(np.mean(test_rewards))
-                        self.log_after_test_episode(np.mean(test_rewards), episode)
-
-        elif exec_mode == "test":
-            self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
-
-            if not self.quiet: print(f"Starting testing")
-            for episode in range(self.test_n_epochs):
-                self.run_episode(episode, train_phase="test")
-        else:
-            raise ValueError(f"Execution mode {exec_mode} is not supported. Available options are " \
-                             "learn, test, continue_learning")
-
-        # Save the retrieved results (actions, rewards)
-        # np.save(self.output_dir + "actions.npy", self.total_actions)
-        np.save(f"{self.model_outputs}" + "rewards.npy", self.total_rewards)
-        np.save(f"{self.model_outputs}" + "actions_test.npy", self.total_actions_test)
-        np.save(f"{self.model_outputs}" + "rewards_test.npy", self.total_rewards_test)
-
-        self.clear_bad_checkpoints()
-
-    def run_episode(self, episode, train_phase="learn"):
-        # Initialize buffer
-        self.buffer.reset_buffer()
-
-        # Iterate over time steps
-        cur_timestep = 0
-        episode_returns = []
-        # total_urgent_comps = 0
-        while cur_timestep < self.env.timesteps:
-            observation = self.env.states_nn
-            # Sample action from actor, and value from critic
-            action, log_prob, value = self.sample_action(self.env.states_nn, episode)
-            # action, log_prob = self.actor_old.sample_action_actor(self.env.states_nn, ep=0)
-            # value = self.critic_old.sample_action_critic(self.env.states_nn, ep=0, w_rewards=self.env.w_rewards)
-
-            # Perform a step into the environment
-            observation_new, reward, done, _ = self.env.step(self.env.actions[copy(action)])
-            # total_urgent_comps += len(self.env.urgent_comps)
-
-            if isinstance(value, np.ndarray):
-                value = th.Tensor(value).float()
-
-            # Store the observation, action, reward, predicted value and log probabilities
-            self.buffer.store(observation, action, reward, value, log_prob)
-
-            # Check if the episode has ended. If so, proceed to training
-            if done or (cur_timestep == self.env.timesteps - 1):
-                observation_tensor = th.tensor(np.array([observation_new]), dtype=th.float).to(
-                    self.device)
-                last_value = 0 if done else th.dot(self.critic(observation_tensor.reshape(1, -1)).item(), self.env.w_rewards)
-                self.buffer.finish_trajectory(last_value, self.env.w_rewards)
-                self.env.reset()
-
-                # Check where to append the rewards based on the execution mode
-                if train_phase == "learn" or train_phase == "test_train" or train_phase == "return_values":
-                    pass
-                    # self.total_rewards.append(np.sum(
-                    #     self.buffer.reward_buffer) * self.env.norm_factor)
-                    # # self.total_actions.append(self.buffer.action_buffer)
-                elif train_phase == "test":
-                    pass
-                    if self.save_in_files: self.total_rewards_test.append(
-                        np.einsum("ij,j->ij", self.buffer.reward_buffer, self.env.norm_factor))
-                    if self.save_in_files: self.total_actions_test.append(self.buffer.action_buffer)
-                else:
-                    raise ValueError(
-                        f"Execution mode {train_phase} not relevant. Available options are learn and test.")
-
-                act, counts = np.unique(self.buffer.action_buffer, return_counts=True)
-                if not self.quiet: print(f"{train_phase} episode: {episode}, Total return:"
-                      # f" {np.sum(self.buffer.reward_buffer, axis=0) * self.env.norm_factor} "
-                      f" {self.buffer.return_buffer[0] * self.env.norm_factor} "
-                      f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.env.timesteps)))}"
-                      # f"Total urgent comps {total_urgent_comps}"
-                      )
-                break
-
-            cur_timestep += 1
-
-        # Train the two networks based on the experience of this episode
-        if train_phase == "learn":
-            actor_loss, critic_loss = self.train()
-
-            self.log_after_training(episode, actor_loss, critic_loss)
-
-        if train_phase == "return_values":
-            return self.buffer.return_buffer[0] # TODO: Get mean of these as return of OLS!
-
-        if isinstance(self.buffer.advantage_buffer, np.ndarray):
-            return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards)
-        else:
-            return np.sum(self.buffer.return_buffer[0].numpy() * self.env.w_rewards)
+    # def run_episodes(self, exec_mode="train", checkpoint_dir=None, checkpoint_ep=None, reuse_mode="full"):
+    #     # Iterate over episodes
+    #     # If we are in training mode
+    #     if (exec_mode == "train") or (exec_mode == "continue_training"):
+    #
+    #         if exec_mode == "continue_training":
+    #             self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
+    #
+    #         if not self.quiet: print(f"Starting training.")
+    #         for episode in range(self.n_epochs):
+    #             returns = self.run_episode(episode, train_phase="learn")
+    #             # log everything that is needed
+    #             if episode % self.checkpoint_interval == 0 or episode == self.n_epochs - 1:
+    #                 self.actor.save_checkpoint(episode)
+    #                 self.critic.save_checkpoint(episode)
+    #
+    #             values = np.dot(self.critic(th.Tensor(self.env.states_nn)).detach().numpy(),
+    #                             self.env.w_rewards)
+    #             self.log_after_train_episode(episode, returns, values)
+    #
+    #             if self.test_interval:
+    #                 if episode % self.test_interval == 0 or episode == self.n_epochs - 1:
+    #                     if not self.quiet: print(f"Beginning test runs with current weights.")
+    #                     test_rewards = []
+    #                     for test_episode in range(self.test_n_epochs):
+    #                         test_rewards.append(self.run_episode(test_episode, train_phase="test_train"))
+    #                     if self.save_in_files: self.total_rewards_test.append(np.mean(test_rewards))
+    #                     self.log_after_test_episode(np.mean(test_rewards), episode)
+    #
+    #     elif exec_mode == "test":
+    #         self._load_model_weights(checkpoint_dir, checkpoint_ep, reuse_mode)
+    #
+    #         if not self.quiet: print(f"Starting testing")
+    #         for episode in range(self.test_n_epochs):
+    #             self.run_episode(episode, train_phase="test")
+    #     else:
+    #         raise ValueError(f"Execution mode {exec_mode} is not supported. Available options are " \
+    #                          "learn, test, continue_learning")
+    #
+    #     # Save the retrieved results (actions, rewards)
+    #     # np.save(self.output_dir + "actions.npy", self.total_actions)
+    #     np.save(f"{self.model_outputs}" + "rewards.npy", self.total_rewards)
+    #     np.save(f"{self.model_outputs}" + "actions_test.npy", self.total_actions_test)
+    #     np.save(f"{self.model_outputs}" + "rewards_test.npy", self.total_rewards_test)
+    #
+    #     self.clear_bad_checkpoints()
+    #
+    # def run_episode(self, episode, train_phase="learn"):
+    #     # Initialize buffer
+    #     self.buffer.reset_buffer()
+    #
+    #     # Iterate over time steps
+    #     cur_timestep = 0
+    #     episode_returns = []
+    #     # total_urgent_comps = 0
+    #     while cur_timestep < self.env.timesteps:
+    #         observation = self.env.states_nn
+    #         # Sample action from actor, and value from critic
+    #         action, log_prob, value = self.sample_action(self.env.states_nn, episode)
+    #         # action, log_prob = self.actor_old.sample_action_actor(self.env.states_nn, ep=0)
+    #         # value = self.critic_old.sample_action_critic(self.env.states_nn, ep=0, w_rewards=self.env.w_rewards)
+    #
+    #         # Perform a step into the environment
+    #         observation_new, reward, done, _ = self.env.step(self.env.actions[copy(action)])
+    #         # total_urgent_comps += len(self.env.urgent_comps)
+    #
+    #         if isinstance(value, np.ndarray):
+    #             value = th.Tensor(value).float()
+    #
+    #         # Store the observation, action, reward, predicted value and log probabilities
+    #         self.buffer.store(observation, action, reward, value, log_prob)
+    #
+    #         # Check if the episode has ended. If so, proceed to training
+    #         if done or (cur_timestep == self.env.timesteps - 1):
+    #             observation_tensor = th.tensor(np.array([observation_new]), dtype=th.float).to(
+    #                 self.device)
+    #             last_value = 0 if done else th.dot(self.critic(observation_tensor.reshape(1, -1)).item(), self.env.w_rewards)
+    #             self.buffer.finish_trajectory(last_value, self.env.w_rewards)
+    #             self.env.reset()
+    #
+    #             # Check where to append the rewards based on the execution mode
+    #             if train_phase == "learn" or train_phase == "test_train" or train_phase == "return_values":
+    #                 pass
+    #                 # self.total_rewards.append(np.sum(
+    #                 #     self.buffer.reward_buffer) * self.env.norm_factor)
+    #                 # # self.total_actions.append(self.buffer.action_buffer)
+    #             elif train_phase == "test":
+    #                 pass
+    #                 if self.save_in_files: self.total_rewards_test.append(
+    #                     np.einsum("ij,j->ij", self.buffer.reward_buffer, self.env.norm_factor))
+    #                 if self.save_in_files: self.total_actions_test.append(self.buffer.action_buffer)
+    #             else:
+    #                 raise ValueError(
+    #                     f"Execution mode {train_phase} not relevant. Available options are learn and test.")
+    #
+    #             act, counts = np.unique(self.buffer.action_buffer, return_counts=True)
+    #             if not self.quiet: print(f"{train_phase} episode: {episode}, Total return:"
+    #                   # f" {np.sum(self.buffer.reward_buffer, axis=0) * self.env.norm_factor} "
+    #                   f" {self.buffer.return_buffer[0] * self.env.norm_factor} "
+    #                   f"Actions percentages {dict(zip(act.astype(int), counts * 100 // (self.env.num_components * self.env.timesteps)))}"
+    #                   # f"Total urgent comps {total_urgent_comps}"
+    #                   )
+    #             break
+    #
+    #         cur_timestep += 1
+    #
+    #     # Train the two networks based on the experience of this episode
+    #     if train_phase == "learn":
+    #         actor_loss, critic_loss = self.train()
+    #
+    #         self.log_after_training(episode, actor_loss, critic_loss)
+    #
+    #     if train_phase == "return_values":
+    #         return self.buffer.return_buffer[0] 
+    #
+    #     if isinstance(self.buffer.advantage_buffer, np.ndarray):
+    #         return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards)
+    #     else:
+    #         return np.sum(self.buffer.return_buffer[0].numpy() * self.env.w_rewards)
 
     def train(self):
         if self.normalize_advantage:

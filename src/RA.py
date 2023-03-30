@@ -576,7 +576,7 @@ def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_F
 
         logging.info(f"Begin testing:")
         # Get the value of current execution
-        iters = ppo.test_n_epochs
+        iters = ppo.test_episodes
         n_obj = ppo.env.num_objectives
         # values = np.zeros((iters, n_obj))
         ppo.env.reset()
@@ -593,17 +593,17 @@ def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_F
         logging.info(f"Returning the CBM value")
         return cbm_values[:len(w)], {}
 
-def execute_RA(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001):
 
-    continue_execution = False
-    file_to_load = "outputs/ra/20230327125850_642/iters/iter_1.json"
-    m = 3 #number of objectives
-    ra = RA(m=m,) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
+def execute_RA(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001, continue_execution=False, file_to_load=None):
+
+    # file_to_load = "outputs/ra/20230327125850_642/iters/iter_1.json"
+    m = 3  # number of objectives
+    ra = RA(m=m, )  # , min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_runs_metadata = {}
 
     # Begging with logging
     logging.basicConfig(
-        level=logging.INFO,
+        level="INFO",
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.FileHandler(f"{ra.output_dir}/logs/{ra.timestamp}.log"),
@@ -611,6 +611,12 @@ def execute_RA(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001):
         ]
     )
 
+    logging.info(f"RA execution log file is under {ra.output_dir}/logs/{ra.timestamp}.log")
+
+    logging.info(f"RA execution started with env file {env_file} and model file {model_file}")
+    logging.info(f"RA execution started with reuse mode {reuse_mode}")
+    # logging.info(f"RA execution started with epsilon {epsilon}")
+    logging.info(f"RA execution started with continue execution {continue_execution}")
 
     # Set up the tensorboard dashboard for RA execution
     logging.info(f"Began RA execution {ra.timestamp}")
