@@ -260,8 +260,9 @@ class ThesisEnv(gym.Env):
             step_cost[2] = self._compute_user_cost(comp_traffic)
             self.convenience_components["user_cost"] += self.gamma ** self.time_count * step_cost[2]
 
-            self.convenience_components["travel_time"] -= self.gamma ** self.time_count * (
-                    np.sum(total_travel_time) - np.sum(self.TSTT_init))
+            # Commenting out total travel time for now
+            # self.convenience_components["travel_time"] -= self.gamma ** self.time_count * (
+            #         np.sum(total_travel_time) - np.sum(self.TSTT_init))
 
         # Updating the ongoing actions
         self.act_ongoing = act_ongoing_tmp
@@ -333,7 +334,10 @@ class ThesisEnv(gym.Env):
         # Logging
         self.cost_components = {"maintenance": 0, "inspection": 0, "mobilization": 0, "urgent_actions": 0, 'total': 0}
         self.carbon_components = {"rerouting": 0, "condition": 0, "actions": 0, 'total': 0}
-        self.convenience_components = {"travel_time": 0, "user_cost": 0}
+        self.convenience_components = {
+            # "travel_time": 0,
+            "user_cost": 0
+        }
 
         return
 

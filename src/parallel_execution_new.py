@@ -39,7 +39,8 @@ class MindmapRolloutBufferMultithread:
     :param lam (float): Lambda parameter
 
     """
-    def __init__(self, num_states, num_components, timesteps, num_objectives, gamma=0.99, lam=0.95, processes=1, device="cpu"):
+    def __init__(self, num_states, num_components, timesteps, num_objectives, gamma=0.99, lam=0.95, processes=1,
+                 device="cpu", ra=False):
         # Buffer initialization
         self.num_components = num_components
         self.num_states = num_states
@@ -55,6 +56,9 @@ class MindmapRolloutBufferMultithread:
         self.processes = processes
         self.size = timesteps * self.processes
 
+        # Check whether RA mode is used
+        self.ra = ra
+
         # Reset buffer
         self.reset_buffer()
 
@@ -64,7 +68,10 @@ class MindmapRolloutBufferMultithread:
     def reset_buffer(self) -> None:
         self.observation_buffer = self.init_shared_tensor((self.size, self.observation_dimensions))
         self.action_buffer = self.init_shared_tensor((self.size, self.num_components))
-        self.advantage_buffer = self.init_shared_tensor(self.size).to(self.device)
+        if not self.ra:
+            self.advantage_buffer = self.init_shared_tensor(self.size).to(self.device)
+        else:
+            self.advantage_buffer = self.init_shared_tensor((self.size, self.num_objectives)).to(self.device)
         self.reward_buffer = self.init_shared_tensor((self.size, self.num_objectives))
         self.return_buffer = self.init_shared_tensor((self.size, self.num_objectives))
         self.value_buffer = self.init_shared_tensor((self.size, self.num_objectives))
@@ -130,7 +137,10 @@ class MindmapRolloutBufferMultithread:
         returns_dot = np.einsum('ij,j->i', self.return_buffer.detach().numpy()[path_slice], w_rewards)
 
         # Compute the advantage
-        self.advantage_buffer[path_slice] = th.from_numpy(returns_dot - values_dot[:-1])
+        if not self.ra:
+            self.advantage_buffer[path_slice] = th.from_numpy(returns_dot - values_dot[:-1])
+        else:
+            self.advantage_buffer[path_slice] = self.return_buffer[path_slice] - th.from_numpy(values[:-1])
 
     def get(self):
         # Get all data of the buffer
@@ -387,9 +397,9 @@ class MindmapPPOMultithread(MindmapPPO):
     """
 
     def __init__(self, param_file="src/model_params_mt.yaml", quiet=False, env_file="environments/env_params.yaml",
-                 output_dir="outputs/ppo"):
+                 output_dir="outputs/ppo", ra=False):
 
-        super().__init__(param_file, quiet, env_file, output_dir)
+        super().__init__(param_file, quiet, env_file, output_dir, ra=ra)
 
         if not self.multirunner:
             self.processes = 1
@@ -397,7 +407,7 @@ class MindmapPPOMultithread(MindmapPPO):
         # Initialize Rollout buffer
         self.buffer = MindmapRolloutBufferMultithread(self.env.num_states_iri, self.env.num_components, self.env.timesteps,
                                                       self.env.num_objectives, self.env.gamma, self.lam,
-                                                      self.processes, self.device)
+                                                      self.processes, self.device, self.ra)
 
     def run(self, exec_mode, checkpoint=None, reuse_mode="no", max_val=None):
 
@@ -734,7 +744,7 @@ if __name__ == "__main__":
     os.chdir("../")
 
     start = time.time()
-    ppo = MindmapPPOMultithread()
+    ppo = MindmapPPOMultithread(ra=True)
     print(f"Weights are {ppo.env.w_rewards}")
     ppo.run(exec_mode="train")
     # checkpoint_dir = "src/model_weights/20230316163006_289/",

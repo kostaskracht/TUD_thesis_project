@@ -282,7 +282,10 @@ class MindmapPPO:
     """
 
     def __init__(self, param_file="src/model_params.yaml", quiet=False, env_file="environments/env_params.yaml",
-                 output_dir="outputs/ppo"):
+                 output_dir="outputs/ppo", ra=False):
+
+        # Set RA parameter
+        self.ra = ra
 
         # Get timestamp of the execution
         self.timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
@@ -630,14 +633,15 @@ class MindmapPPO:
 
         return actor_loss, critic_loss.detach().numpy()
 
-    @staticmethod
-    def _normalize_tensor(arr):
-        mean, std = (th.mean(arr), th.std(arr))
+    def _normalize_tensor(self, arr):
 
-        if std == 0:
-            std = 1
+        if self.ra:
+            mean, std = (th.mean(arr, dim=0), th.std(arr, dim=0))
 
-        return (arr - mean) / std
+        else:
+            mean, std = (th.mean(arr), th.std(arr))
+
+        return (arr - mean) / (std + 1e-5)
 
     def _normalize_advantages(self):
         self.buffer.counter, self.buffer.trajectory_start_index = 0, 0
@@ -659,6 +663,9 @@ class MindmapPPO:
     def _policy_loss(self, old_pi, new_pi, advantages):
         # ratio between old and new policy, should be one at the first iteration
         ratio = th.exp(new_pi - old_pi.detach())
+
+        if self.ra:
+            advantages = th.einsum("ij,j->i", advantages, th.from_numpy(np.asarray(self.env.w_rewards)).float())
 
         # clipped surrogate loss
         policy_loss_1 = advantages.detach() * ratio
@@ -803,7 +810,7 @@ class MindmapPPO:
                                    episode)
 
     def log_at_start(self):
-        self.writer.add_graph(self.actor, th.Tensor(self.env.states_nn))
+        # self.writer.add_graph(self.actor, th.Tensor(self.env.states_nn))
         # self.writer.add_graph(self.actor)
 
         dict_to_log = {key: str(value) for key, value in self.param_dict.items()}
@@ -840,8 +847,8 @@ if __name__ == "__main__":
     #     f.write(f"Checking weights {checkpoint}\n")
     ppo = MindmapPPO()
     # ppo.run_episodes(exec_mode="train")
-    ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20230316163006_289/",
-                     checkpoint_ep=10250)
+    # ppo.run_episodes(exec_mode="test", checkpoint_dir="src/model_weights/20230316163006_289/",
+    #                  checkpoint_ep=10250)
     # ppo.run_episodes(exec_mode="continue_training",checkpoint_dir="src/model_weights/20230228181434_311/",
     #                  checkpoint_ep=199)
     # print(f"Mean of test rewards: {np.mean(ppo.total_rewards_test)}\n")
