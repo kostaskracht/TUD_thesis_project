@@ -6,6 +6,7 @@ from torch import nn
 from typing import Iterable, List, Union
 # from pymoo.factory import get_performance_indicator
 from pymoo.indicators.hv import HV
+from scipy.optimize import minimize
 
 
 def layer_init(layer, method='xavier', weight_gain=1, bias_const=0):
@@ -160,6 +161,18 @@ def seed_everything(seed: int = 42):
     th.cuda.manual_seed(seed)
     th.backends.cudnn.deterministic = True
     th.backends.cudnn.benchmark = True
+
+def paretoDirection(jacobian):
+    # PARETODIRECTION Computes the minimum-norm Pareto-ascent direction.
+
+    N_obj = jacobian.shape[1]
+    cons = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+    res = minimize(lambda x: np.linalg.norm(jacobian @ x), np.ones(N_obj)/N_obj,
+                   method='SLSQP', constraints=cons)
+    lambda_ = res.x
+    dir_ = jacobian @ lambda_
+
+    return dir_, lambda_
 
 if __name__ == '__main__':
 

@@ -14,7 +14,7 @@ class Benchmarks:
     Class that contains all the code benchmarks.
     """
 
-    def __init__(self, param_file="src/benchmarks_params.yaml"):
+    def __init__(self, param_file="src/benchmarks_params.yaml", env_file="environments/env_params.yaml"):
         self.param_file = param_file
         self.param_dict = self._load_yaml_file(self.param_file)
 
@@ -23,7 +23,7 @@ class Benchmarks:
         self.save = self.param_dict["save"]
         self.modes = self.param_dict["modes"]
         self.env_name = self.param_dict["env_name"]
-        self.env = gym.make(self.env_name, quiet=True)
+        self.env = gym.make(self.env_name, quiet=True, param_file=env_file)
 
         # Set random seed for reproducibility
         if self.seed:

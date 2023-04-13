@@ -2,6 +2,8 @@ import time
 
 import gym
 import thesis_env
+from utils import paretoDirection
+
 import os
 import math
 import shutil
@@ -526,7 +528,7 @@ class MindmapPPO:
     #         self.log_after_training(episode, actor_loss, critic_loss)
     #
     #     if train_phase == "return_values":
-    #         return self.buffer.return_buffer[0] 
+    #         return self.buffer.return_buffer[0]
     #
     #     if isinstance(self.buffer.advantage_buffer, np.ndarray):
     #         return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards)
@@ -580,10 +582,12 @@ class MindmapPPO:
                     return_buffer = th.Tensor(return_buffer_init[indices]).to(self.device)
                     advantage_buffer = th.Tensor(advantage_buffer_init[indices]).to(self.device)
 
-                critic_values = th.einsum("ij,j->i", self.critic(observation_buffer), th.from_numpy(np.asarray(self.env.w_rewards)).float())
-                return_buffer = th.einsum("ij,j->i", return_buffer, th.from_numpy(np.asarray(self.env.w_rewards)).float())
-                critic_values = th.squeeze(critic_values)
-                return_buffer = th.squeeze(return_buffer)
+                critic_values = self.critic(observation_buffer)
+
+                critic_values_scal = th.einsum("ij,j->i", self.critic(observation_buffer), th.from_numpy(np.asarray(self.env.w_rewards)).float())
+                return_buffer_scal = th.einsum("ij,j->i", return_buffer, th.from_numpy(np.asarray(self.env.w_rewards)).float())
+                critic_values_scal = th.squeeze(critic_values_scal)
+                return_buffer_scal = th.squeeze(return_buffer_scal)
 
                 # try:
                 state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
@@ -591,8 +595,12 @@ class MindmapPPO:
                 #     print("Found the error!")
                 new_probs = state_dist.log_prob(action_buffer).sum(dim=1)
 
-                actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
-                critic_loss = self._value_loss(return_buffer, critic_values)
+                if not self.ra:
+                    actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
+                else:
+                    actor_loss = {"policy_loss": self._policy_loss_obj(logprobability_buffer, new_probs, advantage_buffer)}
+
+                critic_loss = self._value_loss(return_buffer_scal, critic_values_scal)
 
                 # Add the entropy coefficient to the actor loss
                 if self.ent_coef:
@@ -602,9 +610,52 @@ class MindmapPPO:
                 if self.vf_coef:
                     actor_loss["value_loss"] = self.vf_coef * critic_loss.detach()
 
-                actor_loss["total_loss"] = sum(actor_loss.values())
-                actor_loss["total_loss"].backward()
+                if not self.ra:
+                    actor_loss["total_loss"] = sum(actor_loss.values())
+                    actor_loss["total_loss"].backward()
+                else:
+                    actor_loss_total = sum(actor_loss.values())
+                    actor_loss["total_loss"] = sum(actor_loss_total * th.from_numpy(np.asarray(self.env.w_rewards)).float())
+                    actor_loss["policy_loss"] = sum(actor_loss["policy_loss"] * th.from_numpy(np.asarray(self.env.w_rewards)).float())
+
+                    actor_loss["total_loss"].backward(retain_graph=True)
+
+                    # Get the jacobian to compute the pareto direction
+                    pareto_dims = []
+                    fin_grad = [p.grad.detach() * 0 for p in self.actor.parameters() if p.grad is not None]
+                    test_grad = [copy(p.grad.detach().numpy()) for p in self.actor.parameters() if p.grad is not None]
+                    for obj_idx, loss in enumerate(actor_loss_total):
+                        loss.backward(retain_graph=True)
+                        grads = []
+                        for idx, p in enumerate(self.actor.parameters()):
+                            if p.grad is not None:
+                                fin_grad[idx] += copy(p.grad.detach()) * self.env.w_rewards[obj_idx]
+                                grads.append(p.grad.view(-1))
+
+                        pareto_dims.append(th.cat(grads))
+
+                    # Normalize the gradients
+                    pareto_dims_norm = th.stack(pareto_dims).T / th.linalg.norm(th.stack(pareto_dims).T, axis=0)
+
+                    # Compute the pareto direction
+                    pareto_dir, _ = paretoDirection(pareto_dims_norm)
+                    pareto_dir_norm = th.linalg.norm(pareto_dir)
+
+                    # Update the gradients
+                    for idx,param in enumerate(self.actor.parameters()):
+                        if param.grad is not None:
+                            param.grad = fin_grad[idx]
+
+
+                    print("Pareto direction norm: {}".format(pareto_dir_norm.item()))
+                    tolerance = 0.001
+                    if pareto_dir_norm.item() <= tolerance:
+                        print("Pareto optimal found! Value is {}".format(pareto_dir_norm.item()))
+
+
                 critic_loss.backward()
+
+
 
                 self.actor.optimizer.step()
                 self.critic.optimizer.step()
@@ -671,6 +722,21 @@ class MindmapPPO:
         policy_loss_1 = advantages.detach() * ratio
         policy_loss_2 = advantages.detach() * th.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
         policy_loss = -th.min(policy_loss_1, policy_loss_2).mean()
+        return policy_loss
+
+    def _policy_loss_obj(self, old_pi, new_pi, advantages):
+        # ratio between old and new policy, should be one at the first iteration
+        ratio = th.exp(new_pi - old_pi.detach())
+
+        # if self.ra:
+        #     advantages = th.einsum("ij,j->i", advantages, th.from_numpy(np.asarray(self.env.w_rewards)).float())
+
+        # clipped surrogate loss
+        policy_loss_1 = th.einsum("ij,i->ij", advantages.detach(), ratio)  # advantages.detach() * ratio
+        clamped_ratio = th.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
+        policy_loss_2 = th.einsum("ij,i->ij", advantages.detach(), clamped_ratio)
+            # advantages.detach() * th.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
+        policy_loss = -th.min(policy_loss_1, policy_loss_2).mean(dim=0)
         return policy_loss
 
     def _value_loss(self, returns, values):

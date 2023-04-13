@@ -330,7 +330,7 @@ class MindmapPPOMultithread(MindmapPPO):
 
 
 if __name__ == "__main__":
-    os.chdir("../")
+    os.chdir("../../")
 
     start = time.time()
     ppo = MindmapPPOMultithread()

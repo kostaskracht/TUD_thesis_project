@@ -117,7 +117,9 @@ class ThesisEnv(gym.Env):
             rew_basket = []
             self.std_reward = np.ones(self.num_objectives)
             self.max_reward = np.zeros(self.num_objectives)
-            for _ in range(self.norm_episodes):
+            print("Starting normalization episodes")
+            for idx in range(self.norm_episodes):
+                print(f"Normalization episode {idx + 1}/{self.norm_episodes}")
                 self.reset()
                 for i in range(self.timesteps):
                     cur_action = np.random.choice(np.arange(self.num_actions), size=self.num_components, replace=True,)
