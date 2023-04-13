@@ -528,7 +528,7 @@ class MindmapPPO:
     #         self.log_after_training(episode, actor_loss, critic_loss)
     #
     #     if train_phase == "return_values":
-    #         return self.buffer.return_buffer[0]
+    #         return self.buffer.return_buffer[0] 
     #
     #     if isinstance(self.buffer.advantage_buffer, np.ndarray):
     #         return np.sum(self.buffer.return_buffer[0] * self.env.w_rewards)
@@ -582,12 +582,10 @@ class MindmapPPO:
                     return_buffer = th.Tensor(return_buffer_init[indices]).to(self.device)
                     advantage_buffer = th.Tensor(advantage_buffer_init[indices]).to(self.device)
 
-                critic_values = self.critic(observation_buffer)
-
-                critic_values_scal = th.einsum("ij,j->i", self.critic(observation_buffer), th.from_numpy(np.asarray(self.env.w_rewards)).float())
-                return_buffer_scal = th.einsum("ij,j->i", return_buffer, th.from_numpy(np.asarray(self.env.w_rewards)).float())
-                critic_values_scal = th.squeeze(critic_values_scal)
-                return_buffer_scal = th.squeeze(return_buffer_scal)
+                critic_values = th.einsum("ij,j->i", self.critic(observation_buffer), th.from_numpy(np.asarray(self.env.w_rewards)).float())
+                return_buffer = th.einsum("ij,j->i", return_buffer, th.from_numpy(np.asarray(self.env.w_rewards)).float())
+                critic_values = th.squeeze(critic_values)
+                return_buffer = th.squeeze(return_buffer)
 
                 # try:
                 state_dist = self.actor.transform_with_softmax(self.actor(observation_buffer))
@@ -595,12 +593,8 @@ class MindmapPPO:
                 #     print("Found the error!")
                 new_probs = state_dist.log_prob(action_buffer).sum(dim=1)
 
-                if not self.ra:
-                    actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
-                else:
-                    actor_loss = {"policy_loss": self._policy_loss_obj(logprobability_buffer, new_probs, advantage_buffer)}
-
-                critic_loss = self._value_loss(return_buffer_scal, critic_values_scal)
+                actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
+                critic_loss = self._value_loss(return_buffer, critic_values)
 
                 # Add the entropy coefficient to the actor loss
                 if self.ent_coef:
@@ -652,10 +646,7 @@ class MindmapPPO:
                     if pareto_dir_norm.item() <= tolerance:
                         print("Pareto optimal found! Value is {}".format(pareto_dir_norm.item()))
 
-
                 critic_loss.backward()
-
-
 
                 self.actor.optimizer.step()
                 self.critic.optimizer.step()

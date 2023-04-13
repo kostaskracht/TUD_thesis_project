@@ -19,50 +19,27 @@ if __name__ == "__main__":
     reuse_mode = "no"
     epsilon = 0.05
     continue_execution = False
-    file_to_load = "outputs/ols/20230327125850_642/iters/iter_1.json"
-    message = ""
-    ra = False # TODO - SOS Change to False afterwards!
-    execution = "ppo" # ols, ra, ppo
-    run_benchmark = True
+    file_to_load = "outputs/ols/20230410150924_687/iters/iter_48.json" # iter2
+    #file_to_load = "outputs/ols/20230401165818_954/iters/iter_25.json" # iter1
+    message = "OLS Execution - iteration 3 - seed 1244"
+    execution = "ols" # ols, ra, ppo
+    run_benchmark = False
 
-    ## Full environment parameters set
-    # new_env_params = {
-    #     "seed": 1234,
-    #     "w_rewards": [1, 0, 0],
-    #     "is_objective_active": [True, False, False],
-    #     "components_to_keep": None,
-    #     "max_reward": [9.53120000e+01, 5.88369327e+08, 3.05471214e+08],
-    #     "std_reward": [48.8203, 1.0, 1.0],
-    #     "norm_method": "scaled"
-    #     # "quiet": False,
-    # }
-    #
-    # # Update model file parameters
-    # new_model_params = {
-    #     "seed": 1234,
-    #     "n_epochs": 150000,
-    #     "actor_arch": [450, "relu", 450, "relu"],
-    #     "critic_arch": [450, "relu", 450, "relu"],
-    #     "quiet": False
-    # }
-
-
-# Update env file parameters
+    # Update env file parameters
     new_env_params = {
-        "seed": 1234,
-        "w_rewards": [0.3, 0.2, 0.5]
+        "seed": 1244,
+        #"w_rewards": [1.0, 0.0, 0.0]
     }
 
     # Update model file parameters
     new_model_params = {
-        "seed": 1234,
+        "seed": 1244,
         "quiet": False,
-        # "normalize_advantage": False,
-        # "n_epochs": 15000,
-        # "multirunner": False,
     }
 
     files_dict = {env_file: new_env_params, model_file: new_model_params}
+
+    print(message)
 
     # Update the yaml files
     new_filenames = []
@@ -83,22 +60,14 @@ if __name__ == "__main__":
     if execution == "ols":
         # Execute OLS
         ols = execute_OLS(model_file=new_filenames[1], env_file=new_filenames[0], reuse_mode=reuse_mode, epsilon=epsilon,
-                          continue_execution=continue_execution)
+                          continue_execution=continue_execution, file_to_load=file_to_load)
         weights = ols.env.w_rewards
         print(f"Weights are {ols.env.w_rewards}")
         f = open(f"{ols.output_dir}/logs/README", "w")
 
-        if run_benchmark:
-            benchmarks = Benchmarks(env_file=new_filenames[0])
-            print(f"Saving benchmark execution under {benchmarks.timestamp}")
-
-            print(f"Executing CBM:")
-            cbm_value, cbm_values = benchmarks.execute_benchmarks(output_dir=ols.output_dir)
-            print(f"CBM return for weights: {benchmarks.env.w_rewards} is {cbm_value}")
-
 
     elif execution == "ppo":
-        ppo = MindmapPPOMultithread(param_file=new_filenames[1], env_file=new_filenames[0], ra=ra)
+        ppo = MindmapPPOMultithread(param_file=new_filenames[1], env_file=new_filenames[0], ra=False)
         print(f"Weights are {ppo.env.w_rewards}")
         ppo.run(exec_mode="train")
         f = open(f"{ppo.output_dir}/README", "w")
