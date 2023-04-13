@@ -16,25 +16,27 @@ if __name__ == "__main__":
 
     model_file = "src/model_params_mt.yaml"
     env_file = "environments/env_params.yaml"
-    reuse_mode = "no"
+    reuse_mode = "partial"
     epsilon = 0.05
     continue_execution = False
+    seed = 1234
     file_to_load = "outputs/ols/20230410150924_687/iters/iter_48.json" # iter2
     #file_to_load = "outputs/ols/20230401165818_954/iters/iter_25.json" # iter1
-    message = "OLS Execution - iteration 3 - seed 1244"
-    execution = "ols" # ols, ra, ppo
+    execution = "ols"  # ols, ra, ppo
+    message = f"{execution} Execution - {reuse_mode} reuse - seed {seed}"
     run_benchmark = False
 
     # Update env file parameters
     new_env_params = {
-        "seed": 1244,
+        "seed": seed,
         #"w_rewards": [1.0, 0.0, 0.0]
     }
 
     # Update model file parameters
     new_model_params = {
-        "seed": 1244,
+        "seed": seed,
         "quiet": False,
+        #"n_epochs": 1000
     }
 
     files_dict = {env_file: new_env_params, model_file: new_model_params}
