@@ -504,12 +504,12 @@ class OLS:
 
 
 def find_closest_run(prev_runs_metadata, w):
-    max_dot = 0
+    min_norm = np.inf
     closest_run = list(prev_runs_metadata.keys())[0]
     for run_timestamp in prev_runs_metadata.keys():
-        cur_dot = np.dot(w, prev_runs_metadata[run_timestamp]["weights"])
-        if max_dot < cur_dot:
-            max_dot = cur_dot
+        cur_norm = np.linalg.norm(w - prev_runs_metadata[run_timestamp]["weights"])
+        if cur_norm < min_norm:
+            min_norm = cur_norm
             closest_run = run_timestamp
     return prev_runs_metadata[closest_run]
 
@@ -635,6 +635,8 @@ def execute_OLS(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001,
         ols.ccs_weights = input_dict["ccs_weights"]
         ols.queue = input_dict["queue"]
         ols.iteration = input_dict["iteration"]
+        # Add the previous runs metadata
+        prev_runs_metadata = input_dict["prev_runs_metadata"]
 
     start = time.time()
     while not ols.ended():
@@ -657,7 +659,8 @@ def execute_OLS(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001,
                        "ccs": ols.ccs,
                        "ccs_weights": ols.ccs_weights,
                        "queue": ols.queue,
-                       "iteration": ols.iteration
+                       "iteration": ols.iteration,
+                       "prev_runs_metadata": prev_runs_metadata
                        }
         with open(f'{ols.output_dir}/iters/iter_{ols.iteration}.json', "w") as f:
             json.dump(output_dict, f, cls=NumpyEncoder)

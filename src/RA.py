@@ -520,7 +520,7 @@ def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_F
     # sys.stdout = open(os.devnull, 'w')
 
     ppo_output_dir = f"{ols_out_dir}/ppo"
-    ppo = MindmapPPOMultithread(quiet=True, param_file=MODEL_FILE, env_file=ENV_FILE, output_dir=ppo_output_dir)
+    ppo = MindmapPPOMultithread(quiet=True, param_file=MODEL_FILE, env_file=ENV_FILE, output_dir=ppo_output_dir, ra=True)
     benchmarks = Benchmarks()
 
     enable_ppo = True
