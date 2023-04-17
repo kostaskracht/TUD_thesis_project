@@ -383,6 +383,8 @@ class MindmapPPOMultithread(MindmapPPO):
                                 print(f"Episode {update_iteration}")
                                 self.buffer = msg.buffer
                                 actor_loss, critic_loss = self.train()
+                                if self.done:
+                                    agent_completed[:] = [True for i in agent_completed]
                                 self.log_after_training(msg.episode, actor_loss, critic_loss)
 
                                 if msg.episode % self.checkpoint_interval == 0 or msg.episode == self.n_epochs - 1:
@@ -439,7 +441,7 @@ class MindmapPPOMultithread(MindmapPPO):
                         self.log_after_train_episode(msg.episode, returns, values, {"metadata": msg.metadata})
 
             if False not in agent_completed:
-                print("=Training ended with Max Episodes=")
+                print("=Training ended=")
                 break
 
         for agent in agents:
@@ -447,7 +449,6 @@ class MindmapPPOMultithread(MindmapPPO):
 
         # Clear the checkpoints that do not correspond to the best weights
         self.clear_bad_checkpoints()
-
         return
 
     def run_testing(self, test_episodes, env_file=None):

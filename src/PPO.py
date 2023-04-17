@@ -381,6 +381,9 @@ class MindmapPPO:
 
         print(f"Current execution timestamp is {self.timestamp}")
 
+        # Variable to indicate whether RA execution has been completed
+        self.done = False
+
     def sample_action(self, observation, ep):
         observation_tensor = th.tensor(np.array(observation), dtype=th.float).to(self.device)
 
@@ -562,6 +565,8 @@ class MindmapPPO:
 
             permutation = th.randperm(self.env.timesteps * self.processes)
 
+            if self.done: break
+
             for i in range(0, self.env.timesteps, self.batch_size):
                 self.actor.optimizer.zero_grad()
                 self.critic.optimizer.zero_grad()
@@ -593,7 +598,10 @@ class MindmapPPO:
                 #     print("Found the error!")
                 new_probs = state_dist.log_prob(action_buffer).sum(dim=1)
 
-                actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
+                if self.ra:
+                    actor_loss = {"policy_loss": self._policy_loss_obj(logprobability_buffer, new_probs, advantage_buffer)}
+                else:
+                    actor_loss = {"policy_loss": self._policy_loss(logprobability_buffer, new_probs, advantage_buffer)}
                 critic_loss = self._value_loss(return_buffer, critic_values)
 
                 # Add the entropy coefficient to the actor loss
@@ -608,16 +616,20 @@ class MindmapPPO:
                     actor_loss["total_loss"] = sum(actor_loss.values())
                     actor_loss["total_loss"].backward()
                 else:
+                    # Get a 3-d tensor with loss per objective
                     actor_loss_total = sum(actor_loss.values())
+                    # Get the total loss as 1-d tensor
                     actor_loss["total_loss"] = sum(actor_loss_total * th.from_numpy(np.asarray(self.env.w_rewards)).float())
+                    # Make actor loss 1-d
                     actor_loss["policy_loss"] = sum(actor_loss["policy_loss"] * th.from_numpy(np.asarray(self.env.w_rewards)).float())
 
+                    # Populate the gradients based on total loss
                     actor_loss["total_loss"].backward(retain_graph=True)
 
                     # Get the jacobian to compute the pareto direction
                     pareto_dims = []
                     fin_grad = [p.grad.detach() * 0 for p in self.actor.parameters() if p.grad is not None]
-                    test_grad = [copy(p.grad.detach().numpy()) for p in self.actor.parameters() if p.grad is not None]
+                    # test_grad = [copy(p.grad.detach().numpy()) for p in self.actor.parameters() if p.grad is not None]
                     for obj_idx, loss in enumerate(actor_loss_total):
                         loss.backward(retain_graph=True)
                         grads = []
@@ -636,15 +648,16 @@ class MindmapPPO:
                     pareto_dir_norm = th.linalg.norm(pareto_dir)
 
                     # Update the gradients
-                    for idx,param in enumerate(self.actor.parameters()):
+                    for idx, param in enumerate(self.actor.parameters()):
                         if param.grad is not None:
                             param.grad = fin_grad[idx]
-
 
                     print("Pareto direction norm: {}".format(pareto_dir_norm.item()))
                     tolerance = 0.001
                     if pareto_dir_norm.item() <= tolerance:
                         print("Pareto optimal found! Value is {}".format(pareto_dir_norm.item()))
+                        self.done = True
+                        break
 
                 critic_loss.backward()
 
