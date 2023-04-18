@@ -2,6 +2,7 @@ import time
 
 from OLS import execute_OLS
 from RA import execute_RA
+from PF import execute_PF
 from Benchmarks import Benchmarks
 from parallel_execution_new import MindmapPPOMultithread
 import os
@@ -84,9 +85,16 @@ if __name__ == "__main__":
 
     elif execution == "ra":
         ra = execute_RA(model_file=new_filenames[1], env_file=new_filenames[0], reuse_mode=reuse_mode, epsilon=epsilon,
-                        continue_execution=continue_execution)
+                        continue_execution=continue_execution, file_to_load=file_to_load)
         print(f"Weights are {ra.env.w_rewards}")
         f = open(f"{ra.output_dir}/logs/README", "w")
+
+    elif execution == "pf":
+        reuse_mode = "full"
+        pf = execute_PF(model_file=new_filenames[1], env_file=new_filenames[0], reuse_mode=reuse_mode, epsilon=epsilon,
+                        continue_execution=continue_execution, file_to_load=file_to_load)
+        # print(f"Weights are {ra.env.w_rewards}")
+        f = open(f"{pf.output_dir}/logs/README", "w")
 
     f.write(message)
 

@@ -538,7 +538,7 @@ class MindmapPPO:
     #     else:
     #         return np.sum(self.buffer.return_buffer[0].numpy() * self.env.w_rewards)
 
-    def train(self):
+    def train(self, episode, cur_m=None):
         if self.normalize_advantage:
             if isinstance(self.buffer.advantage_buffer, np.ndarray):
                 self.buffer.advantage_buffer = self._normalize_array(self.buffer.advantage_buffer)
@@ -616,11 +616,17 @@ class MindmapPPO:
                     actor_loss["total_loss"] = sum(actor_loss.values())
                     actor_loss["total_loss"].backward()
                 else:
+
+                    if cur_m:
+                        # set all values of self.env.w_rewards to 0
+                        self.env.w_rewards = list(np.zeros(self.env.num_objectives))
+                        self.env.w_rewards[cur_m] = 1.0
+
                     # Get a 3-d tensor with loss per objective
                     actor_loss_total = sum(actor_loss.values())
-                    # Get the total loss as 1-d tensor
+                    # Get the total loss as 1-d tensor # This one is totally dummy for PF!
                     actor_loss["total_loss"] = sum(actor_loss_total * th.from_numpy(np.asarray(self.env.w_rewards)).float())
-                    # Make actor loss 1-d
+                    # Make actor loss 1-d # This one is totally dummy for PF!
                     actor_loss["policy_loss"] = sum(actor_loss["policy_loss"] * th.from_numpy(np.asarray(self.env.w_rewards)).float())
 
                     # Populate the gradients based on total loss
@@ -647,17 +653,30 @@ class MindmapPPO:
                     pareto_dir, _ = paretoDirection(pareto_dims_norm)
                     pareto_dir_norm = th.linalg.norm(pareto_dir)
 
-                    # Update the gradients
-                    for idx, param in enumerate(self.actor.parameters()):
-                        if param.grad is not None:
-                            param.grad = fin_grad[idx]
-
-                    print("Pareto direction norm: {}".format(pareto_dir_norm.item()))
-                    tolerance = 0.001
+                    if not self.quiet: print("Pareto direction norm: {}".format(pareto_dir_norm.item()))
+                    tolerance = 0.1
                     if pareto_dir_norm.item() <= tolerance:
                         print("Pareto optimal found! Value is {}".format(pareto_dir_norm.item()))
                         self.done = True
                         break
+
+                    if cur_m:
+                        if self.n_epochs_optim > episode: # Optimization phase (use single objective direction)
+                            pass # All ready!
+                        else: # Correction phase (use pareto direction)
+                            # Reshape pareto_dir to match the shape of fin_grad!
+                            fin_shape_prod_prev = 0
+                            for idx in range(len(fin_grad)):
+                                fin_shape = fin_grad[idx].shape
+                                fin_shape_prod = np.prod(fin_shape)
+
+                                fin_grad[idx] = pareto_dir[fin_shape_prod_prev:fin_shape_prod_prev+fin_shape_prod].reshape(fin_shape).type(th.FloatTensor)
+                                fin_shape_prod_prev = fin_shape_prod
+
+                    # Update the gradients
+                    for idx, param in enumerate(self.actor.parameters()):
+                        if param.grad is not None:
+                            param.grad = fin_grad[idx]
 
                 critic_loss.backward()
 
@@ -886,7 +905,7 @@ class MindmapPPO:
         dict_to_log = {key: str(value) for key, value in self.param_dict.items()}
         self.writer.add_hparams(dict_to_log, {})
 
-    def clear_bad_checkpoints(self):
+    def clear_bad_checkpoints(self, cur_m=None):
         best_episode = np.clip(np.argmax(np.asarray(self.total_rewards_test))*self.log_interval,
                                a_min=None, a_max=self.n_epochs-1)
 
@@ -903,6 +922,11 @@ class MindmapPPO:
 
         self.best_result = np.max(self.total_rewards_test)
         self.best_weight = episode_to_keep1
+
+        # PF - SPECIFIC CHANGE
+        if cur_m:
+            self.best_result = np.max(self.total_rewards_test) # DUMMY FOR PF
+            self.best_weight = episode_to_keep2
         print(f"Best result: {self.best_result}")
         print(f"Value of best network weights: {best_episode:.0f}")
 

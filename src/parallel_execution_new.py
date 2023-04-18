@@ -317,11 +317,11 @@ class MindmapPPOMultithread(MindmapPPO):
                                                       self.env.num_objectives, self.env.gamma, self.lam,
                                                       self.processes, self.device, self.ra)
 
-    def run(self, exec_mode, checkpoint=None, reuse_mode="no", max_val=None):
+    def run(self, exec_mode, checkpoint=None, reuse_mode="no", max_val=None, cur_m=None):
 
         # Configure the execution mode
         if exec_mode == "train":
-            self.run_training(max_val=max_val, env_file=self.env_file)
+            self.run_training(max_val=max_val, env_file=self.env_file, cur_m=cur_m)
             return
         elif exec_mode == "test":
             if checkpoint:
@@ -335,12 +335,12 @@ class MindmapPPOMultithread(MindmapPPO):
             self._load_model_weights(checkpoint_dir=checkpoint[0], checkpoint_ep=checkpoint[1], reuse_mode=reuse_mode)
             self.actor_old.load_state_dict(self.actor.state_dict())
             self.critic_old.load_state_dict(self.critic.state_dict())
-            self.run_training(max_val=max_val, env_file=self.env_file)
+            self.run_training(max_val=max_val, env_file=self.env_file, cur_m=cur_m)
             return
         else:
             raise ValueError("Choose an execution mode between train, continue_train and test.")
 
-    def run_training(self, max_val=None, env_file=None):
+    def run_training(self, max_val=None, env_file=None, cur_m=None):
 
         # starting agents and pipes
         agents = []
@@ -382,7 +382,7 @@ class MindmapPPOMultithread(MindmapPPO):
                             if msg_send.train:
                                 print(f"Episode {update_iteration}")
                                 self.buffer = msg.buffer
-                                actor_loss, critic_loss = self.train()
+                                actor_loss, critic_loss = self.train(episode=update_iteration, cur_m=cur_m)
                                 if self.done:
                                     agent_completed[:] = [True for i in agent_completed]
                                 self.log_after_training(msg.episode, actor_loss, critic_loss)
@@ -448,7 +448,7 @@ class MindmapPPOMultithread(MindmapPPO):
             agent.terminate()
 
         # Clear the checkpoints that do not correspond to the best weights
-        self.clear_bad_checkpoints()
+        self.clear_bad_checkpoints(cur_m=cur_m)
         return
 
     def run_testing(self, test_episodes, env_file=None):
