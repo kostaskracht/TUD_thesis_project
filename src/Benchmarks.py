@@ -257,7 +257,7 @@ class Benchmarks:
 
             _, step_cost, _, _ = self.env.step(self.env.actions[action])
 
-            episode_cost += step_cost * self.env.gamma**(timestep-1)
+            episode_cost += step_cost * self.env.gamma**(timestep-1) *self.env.norm_factor
 
         return np.dot(episode_cost, self.env.w_rewards), episode_cost
 

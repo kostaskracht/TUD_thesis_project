@@ -118,7 +118,7 @@ class MindmapRolloutBuffer:
 
 class MindmapActor(nn.Module):
     def __init__(self, num_components, num_states, num_actions, num_objectives, device, timestamp, optimizer, lr,
-                 lr_min, lr_decay_step, lr_decay_episode_perc, n_epochs, architecture,
+                 lr_min, lr_decay_step, lr_decay_episode_perc, n_epochs, architecture, use_exploration_rate, quiet, epsilon0, epsilon1,
                  checkpoint_dir,
                  checkpoint_suffix="actor"):
         super(MindmapActor, self).__init__()
@@ -160,6 +160,9 @@ class MindmapActor(nn.Module):
 
         self.supported_activation_fns = {"relu": nn.ReLU(), "tanh": nn.Tanh()}
         self.arch = architecture
+
+        self.use_exploration_rate = use_exploration_rate
+        self.quiet, self.epsilon0, self.epsilon1 = quiet, epsilon0, epsilon1
 
         # get network layer dimension pairs (input-output for each layer)
         self.net_dims = self.get_net_dims()
@@ -229,17 +232,19 @@ class MindmapActor(nn.Module):
         observation_tensor = th.tensor(np.array(observation), dtype=th.float).to(self.device)
 
         epsilon = 10
-        # if self.use_exploration_rate:
-        if False:
-            epsilon0 = .0
-            epsilon1 = .0
-            e_perc = 0.3
-            epsilon = np.max([(- epsilon1 + epsilon0) / (e_perc * self.n_epochs) * ep + epsilon1, epsilon0])
+        if self.use_exploration_rate:
+            rat = 2000/self.n_epochs
+            epsilon = np.max(
+                (np.min((
+                    self.epsilon0*(1-ep/(rat*self.n_epochs)) + self.epsilon1*(ep/(rat*self.n_epochs)),
+                    self.epsilon1)),
+                 0))
 
         logits = self.forward(observation_tensor.float())
         logits_softmax = self.transform_with_softmax(logits)
 
         if epsilon >= np.random.random():
+            if not self.quiet: print("Exploring")
             action = logits_softmax.sample()
 
         else:
@@ -268,13 +273,13 @@ class MindmapActor(nn.Module):
 
 class MindmapCritic(MindmapActor):
     def __init__(self, num_components, num_states, num_actions, num_objectives, device, timestamp, optimizer, lr,
-                 lr_min, lr_decay_step, lr_decay_episode_perc, n_epochs, architecture,
+                 lr_min, lr_decay_step, lr_decay_episode_perc, n_epochs, architecture, use_exploration_rate, quiet, epsilon0, epsilon1,
                  checkpoint_dir,
                  checkpoint_suffix="critic"):
         super(MindmapCritic, self).__init__(num_components, num_states, num_actions, num_objectives,
                                             device, timestamp, optimizer, lr, lr_min,
                                             lr_decay_step, lr_decay_episode_perc, n_epochs,
-                                            architecture,
+                                            architecture, use_exploration_rate, quiet, epsilon0, epsilon1,
                                             checkpoint_dir, checkpoint_suffix)
 
 
@@ -337,23 +342,23 @@ class MindmapPPO:
                                   self.env.num_actions, self.env.num_objectives, self.device, self.timestamp,
                                   self.optimizer_act, self.lr_act, self.lr_act_min,
                                   self.lr_decay_step, self.lr_decay_episode_perc, self.n_epochs,
-                                  self.actor_arch, self.checkpoint_dir).to(self.device)
+                                  self.actor_arch, self.use_exploration_rate, self.quiet, self.epsilon0, self.epsilon1, self.checkpoint_dir).to(self.device)
         self.critic = MindmapCritic(self.env.num_components, self.env.num_states_iri,
                                     self.env.num_actions, self.env.num_objectives, self.device, self.timestamp,
                                     self.optimizer_crit, self.lr_crit, self.lr_crit_min,
                                     self.lr_decay_step, self.lr_decay_episode_perc, self.n_epochs,
-                                    self.critic_arch, self.checkpoint_dir, checkpoint_suffix="crit").to(self.device)
+                                    self.critic_arch, self.quiet, self.epsilon0, self.epsilon1, self.use_exploration_rate, self.checkpoint_dir, checkpoint_suffix="crit").to(self.device)
 
         self.actor_old = MindmapActor(self.env.num_components, self.env.num_states_iri,
                                   self.env.num_actions, self.env.num_objectives, self.device, self.timestamp,
                                   self.optimizer_act, self.lr_act, self.lr_act_min,
                                   self.lr_decay_step, self.lr_decay_episode_perc, self.n_epochs,
-                                  self.actor_arch, self.checkpoint_dir).share_memory()
+                                  self.actor_arch, self.quiet, self.epsilon0, self.epsilon1, self.use_exploration_rate, self.checkpoint_dir).share_memory()
         self.critic_old = MindmapCritic(self.env.num_components, self.env.num_states_iri,
                                     self.env.num_actions, self.env.num_objectives, self.device, self.timestamp,
                                     self.optimizer_crit, self.lr_crit, self.lr_crit_min,
                                     self.lr_decay_step, self.lr_decay_episode_perc, self.n_epochs,
-                                    self.critic_arch, self.checkpoint_dir, checkpoint_suffix="crit").share_memory()
+                                    self.critic_arch, self.quiet, self.epsilon0, self.epsilon1, self.use_exploration_rate, self.checkpoint_dir, checkpoint_suffix="crit").share_memory()
 
         self.actor_old.load_state_dict(self.actor.state_dict())
         self.critic_old.load_state_dict(self.critic.state_dict())
@@ -389,10 +394,12 @@ class MindmapPPO:
 
         epsilon = 10
         if self.use_exploration_rate:
-            epsilon0 = .0
-            epsilon1 = .0
-            e_perc = 0.3
-            epsilon = np.max([(- epsilon1 + epsilon0) / (e_perc * self.n_epochs) * ep + epsilon1, epsilon0])
+            rat = 2000 / self.n_epochs
+            epsilon = np.max(
+                (np.min((
+                    self.epsilon0 * (1 - ep / (rat * self.n_epochs)) + self.epsilon1 * (ep / (rat * self.n_epochs)),
+                    self.epsilon1)),
+                 0))
 
         logits = self.actor(observation_tensor.float())
         logits_softmax = self.actor.transform_with_softmax(logits)
@@ -924,9 +931,9 @@ class MindmapPPO:
         self.best_weight = episode_to_keep1
 
         # PF - SPECIFIC CHANGE
-        if cur_m:
-            self.best_result = np.max(self.total_rewards_test) # DUMMY FOR PF
-            self.best_weight = episode_to_keep2
+        # if cur_m:
+        #     self.best_result = np.max(self.total_rewards_test) # DUMMY FOR PF
+        #     self.best_weight = episode_to_keep2
         print(f"Best result: {self.best_result}")
         print(f"Value of best network weights: {best_episode:.0f}")
 

@@ -11,7 +11,6 @@ import seaborn as sns
 import cvxpy as cp
 import matplotlib.pyplot as plt
 import numpy as np
-import yaml
 
 # import wandb as wb
 from utils import random_weights, hypervolume, policy_evaluation_mo, sparsity
@@ -34,33 +33,35 @@ np.set_printoptions(precision=4)
 
 import logging
 
-class OLS:
+class MO_benchmark:
     # Section 3.3 of http://roijers.info/pub/thesis.pdf
     def __init__(
             self,
             m: int,
-            epsilon: float = 0.0,
-            max_value: Optional[float] = None,
-            min_value: Optional[float] = None,
-            reverse_extremum: bool = False,
     ):
         self.m = m # number of objectives
-        self.epsilon = epsilon # TODO
         self.W = [] # list of visited weights
         self.ccs = [] # S: partial CCS
         self.ccs_weights = [] # list of the weights from the partial CCS
         self.queue = [] # Priority queue
+        self.worst_case_weight_repeated = False
         self.iteration = 0 # Iteration num
-        self.max_value = max_value # TODO
-        self.min_value = min_value # TODO
-        self.worst_case_weight_repeated = False # TODO
-        extremum_weights = reversed(self.extrema_weights()) if reverse_extremum else self.extrema_weights()
-        for w in extremum_weights: # For each extrema add the extrema with infinite priority as a
-            # tuple (priority, weight)
-            self.queue.append((float("inf"), w))
+        if m == 2:
+            for i in range(0, 11):
+                for j in range(0, 11):
+                        if i + j == 10:
+                            w = [i / 10, j / 10, 0.0]
+                            self.queue.append((float("inf"), w))
+        elif m == 3:
+            for i in range(0, 11):
+                for j in range(0, 11):
+                    for z in range(0, 11):
+                        if i + j + z == 10:
+                            w = [i / 10, j / 10, z / 10]
+                            self.queue.append((float("inf"), w))
 
         self.timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
-        self.output_dir = f"outputs/ols/{self.timestamp}"
+        self.output_dir = f"outputs/cbm/{self.timestamp}"
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
             os.makedirs(self.output_dir + "/logs")
@@ -108,16 +109,16 @@ class OLS:
                 return [len(self.ccs)]  # delete new policy as it has same value as an old one
 
         # Get the weights that are obsolated i.e. the ones that are not corner weights any more
-        W_del = self.remove_obsolete_weights(new_value=value)
-        W_del.append(w)
-        logging.info(f"W_del {W_del}")
+        # W_del = self.remove_obsolete_weights(new_value=value)
+        # W_del.append(w)
+        # logging.info(f"W_del {W_del}")
 
         # Remove the values from CSS that are dominated by the new value in all visited weights.
         # Return the indices of those values in CSS
         removed_indx = self.remove_obsolete_values(value)
 
         # Get the new corner weights between the new value and the other CCS values
-        W_corner = self.new_corner_weights(value, W_del)
+        # W_corner = self.new_corner_weights(value, W_del)
 
         # Append the new value to the CCS values together with its respective weights
         self.ccs.append(value)
@@ -126,14 +127,14 @@ class OLS:
         # Compute the priority (predicted improvement) of each of the new corners, and sort the
         # queue base on descending priority
         # logging.info(f"W_corner {W_corner}")
-        for wc in W_corner:
-            # gpi_agent is None!
-            priority = self.get_priority(wc, gpi_agent, env)
-            logging.info(f"W_corner {wc} : Improvement {priority}")
-            if priority > self.epsilon:
-                self.queue.append((priority, wc))
-        # Sort the queue
-        self.queue.sort(key=lambda t: t[0], reverse=True)  # Sort in descending order of priority
+        # for wc in W_corner:
+        #     # gpi_agent is None!
+        #     priority = self.get_priority(wc, gpi_agent, env)
+        #     logging.info(f"W_corner {wc} : Improvement {priority}")
+        #     if priority > self.epsilon:
+        #         self.queue.append((priority, wc))
+        # # Sort the queue
+        # self.queue.sort(key=lambda t: t[0], reverse=True)  # Sort in descending order of priority
 
         logging.info(f"queue size {len(self.queue)}")
         logging.info(f"ccs: {self.ccs}")
@@ -504,24 +505,26 @@ class OLS:
 
 
 def find_closest_run(prev_runs_metadata, w):
-    min_norm = np.inf
+    max_dot = 0
     closest_run = list(prev_runs_metadata.keys())[0]
     for run_timestamp in prev_runs_metadata.keys():
-        cur_norm = np.linalg.norm(np.array(w) - np.array(prev_runs_metadata[run_timestamp]["weights"]))
-        if cur_norm < min_norm:
-            min_norm = cur_norm
+        cur_dot = np.dot(w, prev_runs_metadata[run_timestamp]["weights"])
+        if max_dot < cur_dot:
+            max_dot = cur_dot
             closest_run = run_timestamp
     return prev_runs_metadata[closest_run]
 
 
 def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_FILE=None):
 
+    # sys.stdout = open(os.devnull, 'w')
+
     ppo_output_dir = f"{ols_out_dir}/ppo"
-    ppo = MindmapPPOMultithread(quiet=True, param_file=MODEL_FILE, env_file=ENV_FILE, output_dir=ppo_output_dir)
+    ppo = MindmapPPOMultithread(quiet=True, param_file=MODEL_FILE, env_file=ENV_FILE, output_dir=ppo_output_dir, ra=True)
     benchmarks = Benchmarks()
 
-    enable_ppo = True
-    enable_cbm = False
+    enable_ppo = False
+    enable_cbm = True
     cap_ppo = False
 
     # Setting the new preferences
@@ -539,89 +542,91 @@ def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=None, ENV_F
         logging.info(f"Executing CBM:")
         cbm_value, cbm_values = benchmarks.execute_benchmarks(output_dir=ols_out_dir)
         logging.info(f"CBM return for weights: {benchmarks.env.w_rewards} is {cbm_value}")
+        logging.info(f"CBM return values are: {cbm_values}")
 
-        if cap_ppo:
-            max_val = cbm_value
-        else:
-            max_val = None
-    else:
-        max_val = None
+    #     if cap_ppo:
+    #         max_val = cbm_value
+    #     else:
+    #         max_val = None
+    # else:
+    #     max_val = None
 
     if enable_ppo:
-        logging.info(f"Saving PPO execution under {ppo.timestamp}")
-        # if ppo.env.w_rewards[0] == 1.0:
-        #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
-        # elif ppo.env.w_rewards[1] == 1.0:
-        #     return np.array([-1.3583e+03, -0.93151]), {"best_episode": 14200, "output_dir": "src/model_weights/20230305004020_706"}, writer
-        if len(prev_runs_metadata) == 0 or reuse_mode == "no":
-            ppo.run(exec_mode="train", max_val=max_val)
-        else:
-            closest_run_metadata = find_closest_run(prev_runs_metadata, w)
-            logging.info(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
-            ppo.run(exec_mode="continue_training", checkpoint=(closest_run_metadata["output_dir"],
-                                                               closest_run_metadata["best_episode"]), reuse_mode=reuse_mode,
-                    max_val=max_val)
-
-        # Keep the best weight and output dir of current run for the next one
-        best_episode = ppo.best_weight
-        output_dir = ppo.checkpoint_dir #+ ppo.timestamp + "/"
-
-        logging.info(f"Best return from testing rounds was {ppo.best_result}")
-
-        prev_runs_metadata[ppo.timestamp] = {"output_dir": output_dir, "best_episode": best_episode,
-                                             "weights": w}
-
-        logging.info(f"Begin testing:")
-        # Get the value of current execution
-        iters = ppo.test_episodes
-        n_obj = ppo.env.num_objectives
-        # values = np.zeros((iters, n_obj))
-        ppo.env.reset()
-        # for i in range(iters):
-        observation = ppo.env.states_nn
-        init_observations = th.tensor(np.array(observation), dtype=th.float)
-        values = ppo.run(exec_mode="test", checkpoint=(output_dir, best_episode))
-        # values[i] = ppo.critic(init_observations).detach().numpy()
-
-        return values[:len(w)], \
-            prev_runs_metadata
+        pass
+    #     logging.info(f"Saving PPO execution under {ppo.timestamp}")
+    #     # if ppo.env.w_rewards[0] == 1.0:
+    #     #     return np.array([-8.5088e+01, -4.2125e+3]), {"best_episode": 400, "output_dir": "src/model_weights/20230304220616_697"}, writer
+    #     # elif ppo.env.w_rewards[1] == 1.0:
+    #     #     return np.array([-1.3583e+03, -0.93151]), {"best_episode": 14200, "output_dir": "src/model_weights/20230305004020_706"}, writer
+    #     if len(prev_runs_metadata) == 0 or reuse_mode == "no":
+    #         ppo.run(exec_mode="train", max_val=max_val)
+    #     else:
+    #         closest_run_metadata = find_closest_run(prev_runs_metadata, w)
+    #         logging.info(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
+    #         ppo.run(exec_mode="continue_training", checkpoint=(closest_run_metadata["output_dir"],
+    #                                                            closest_run_metadata["best_episode"]), reuse_mode=reuse_mode,
+    #                 max_val=max_val)
+    #
+    #     # Keep the best weight and output dir of current run for the next one
+    #     best_episode = ppo.best_weight
+    #     output_dir = ppo.checkpoint_dir #+ ppo.timestamp + "/"
+    #
+    #     logging.info(f"Best return from testing rounds was {ppo.best_result}")
+    #
+    #     prev_runs_metadata[ppo.timestamp] = {"output_dir": output_dir, "best_episode": best_episode,
+    #                                          "weights": w}
+    #
+    #     logging.info(f"Begin testing:")
+    #     # Get the value of current execution
+    #     iters = ppo.test_episodes
+    #     n_obj = ppo.env.num_objectives
+    #     # values = np.zeros((iters, n_obj))
+    #     ppo.env.reset()
+    #     # for i in range(iters):
+    #     observation = ppo.env.states_nn
+    #     init_observations = th.tensor(np.array(observation), dtype=th.float)
+    #     values = ppo.run(exec_mode="test", checkpoint=(output_dir, best_episode))
+    #     # values[i] = ppo.critic(init_observations).detach().numpy()
+    #
+    #     return values[:len(w)], \
+    #         prev_runs_metadata
 
     else:
         logging.info(f"Returning the CBM value")
         return cbm_values[:len(w)], {}
 
 
-def execute_OLS(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001, continue_execution=False,
-                file_to_load=None):
-    # file_to_load = "outputs/ols/20230327125850_642/iters/iter_1.json"
+def execute_CBM(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001, continue_execution=False, file_to_load=None):
+
+    # file_to_load = "outputs/ra/20230327125850_642/iters/iter_1.json"
     m = 3  # number of objectives
-    ols = OLS(m=m, epsilon=epsilon)  # , min_value=0.0, max_value=1 / (1 - 0.95) * 1)
+    # ra = RA(m=m, )  # , min_value=0.0, max_value=1 / (1 - 0.95) * 1)
     prev_runs_metadata = {}
+    cbm = MO_benchmark(m=m)
 
     # Begging with logging
     logging.basicConfig(
         level="INFO",
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            logging.FileHandler(f"{ols.output_dir}/logs/{ols.timestamp}.log"),
+            logging.FileHandler(f"{cbm.output_dir}/logs/{cbm.timestamp}.log"),
             logging.StreamHandler(sys.stdout)
         ]
     )
 
-    logging.info(f"OLS execution log file is under {ols.output_dir}/logs/{ols.timestamp}.log")
+    logging.info(f"CBM execution log file is under {cbm.output_dir}/logs/{cbm.timestamp}.log")
 
-    logging.info(f"OLS execution started with env file {env_file} and model file {model_file}")
-    logging.info(f"OLS execution started with reuse mode {reuse_mode}")
-    logging.info(f"OLS execution started with epsilon {epsilon}")
+    logging.info(f"CBM execution started with env file {env_file} and model file {model_file}")
+    logging.info(f"CBM execution started with reuse mode {reuse_mode}")
+    # logging.info(f"CBM execution started with epsilon {epsilon}")
+    logging.info(f"CBM execution started with continue execution {continue_execution}")
 
-    logging.info(f"OLS execution started with continue execution {continue_execution}")
-
-    # Set up the tensorboard dashboard for OLS execution
-    logging.info(f"Began OLS execution {ols.timestamp}")
-    writer = SummaryWriter(f"runs/ols/{ols.timestamp}")
+    # Set up the tensorboard dashboard for CBM execution
+    logging.info(f"Began CBM execution {cbm.timestamp}")
+    writer = SummaryWriter(f"runs/ra/{cbm.timestamp}")
 
     if continue_execution:
-        logging.info(f"Loading OLS setting from file {file_to_load}")
+        logging.info(f"Loading CBM setting from file {file_to_load}")
         input_dict = json.load(open(file_to_load))
         input_dict["queue"] = [tuple(x) for x in input_dict["queue"]]
         for key, value in input_dict.items():
@@ -629,103 +634,219 @@ def execute_OLS(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001,
                 new_val = [np.asarray(xx) for xx in value]
                 input_dict[key] = new_val
                 # input_dict[key] = np.asarray(value)
-        ols.m = input_dict["m"]
-        ols.W = input_dict["W"]
-        ols.ccs = input_dict["ccs"]
-        ols.ccs_weights = input_dict["ccs_weights"]
-        ols.queue = input_dict["queue"]
-        ols.iteration = input_dict["iteration"]
-        # Add the previous runs metadata
-        prev_runs_metadata = input_dict["prev_runs_metadata"]
+        cbm.m = input_dict["m"]
+        cbm.W = input_dict["W"]
+        cbm.ccs = input_dict["ccs"]
+        cbm.ccs_weights = input_dict["ccs_weights"]
+        cbm.queue = input_dict["queue"]
+        cbm.iteration = input_dict["iteration"]
 
     start = time.time()
-    while not ols.ended():
+    while not cbm.ended():
         # Select the weight to process
-        w = ols.next_w()
+        w = cbm.next_w()
         # logging.info(f"w to check is: {w}")
         # Solve the single objective problem with the given weight
         logging.info(f"==============================================================================")
-        logging.info(f"Beginning OLS iteration {ols.iteration}")
+        logging.info(f"Beginning CBM iteration {cbm.iteration}")
 
-        value, prev_runs_metadata = solve(w, ols.output_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=model_file, ENV_FILE=env_file)
+        value, prev_runs_metadata = solve(w, cbm.output_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=model_file, ENV_FILE=env_file)
         logging.info(f"Value from PPO execution: {value}")
-        ols.add_solution(value, w)
+        cbm.add_solution(value, w)
         # Plot the convex coverage set
-        ols.plot_ccs(ols.ccs, ols.ccs_weights, writer=writer)
+        cbm.plot_ccs(cbm.ccs, cbm.ccs_weights, writer=writer)
 
-        # Save OLS iteration parameters
-        output_dict = {"m": ols.m,
-                       "W": ols.W,
-                       "ccs": ols.ccs,
-                       "ccs_weights": ols.ccs_weights,
-                       "queue": ols.queue,
-                       "iteration": ols.iteration,
-                       "prev_runs_metadata": prev_runs_metadata
+        # Save CBM iteration parameters
+        output_dict = {"m": cbm.m,
+                       "W": cbm.W,
+                       "ccs": cbm.ccs,
+                       "ccs_weights": cbm.ccs_weights,
+                       "queue": cbm.queue,
+                       "iteration": cbm.iteration
                        }
-        with open(f'{ols.output_dir}/iters/iter_{ols.iteration}.json', "w") as f:
+        with open(f'{cbm.output_dir}/iters/iter_{cbm.iteration}.json', "w") as f:
             json.dump(output_dict, f, cls=NumpyEncoder)
 
 
-        hv = hypervolume(np.zeros(m), ols.ccs)
-        sp = sparsity(ols.ccs)
+        hv = hypervolume(np.zeros(m), cbm.ccs)
+        sp = sparsity(cbm.ccs)
         tm = time.time() - start
 
         logging.info(f"Hypervolume: {hv:.3f}")
         logging.info(f"Sparsity: {sp:.3f}")
         logging.info(f"Execution time {tm:.2f} seconds.")
-        writer.add_scalars("OLS Results",
+        writer.add_scalars("CBM Results",
                            {"Hypervolume": hv,
                             "Sparsity": sp,
                             "Time (sec)": tm},
-                           ols.iteration)
+                           cbm.iteration)
 
-    logging.info(f"OLS execution {ols.timestamp} finished.")
+    logging.info(f"CBM execution {cbm.timestamp} finished.")
     logging.info(f"==============================================================================")
 
-    if len(ols.ccs[0]) > 2:
-        ols.plot_interactive()
+    if len(cbm.ccs[0]) > 2:
+        cbm.plot_interactive()
 
-    return ols
+    return cbm
+
+# def execute_RA(model_file=None, env_file=None, reuse_mode="no", epsilon=0.0001):
+#     from collections import deque
+#
+#     continue_execution = True
+#     file_to_load = "outputs/ols/20230327125850_642/iters/iter_1.json"
+#     # file_to_load = "src/ols/outputs/20230307144052_078/ols/iter_3.json"
+#     m = 3 #number of objectives
+#     # ols = OLS(m=m, epsilon=epsilon) #, min_value=0.0, max_value=1 / (1 - 0.95) * 1)
+#
+#     timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
+#     output_dir = f"outputs/ols/{timestamp}"
+#
+#
+#     # Get ra_weights
+#     ra_weights = []
+#     for i in range(0, 11):
+#         for j in range(0, 11):
+#             for z in range(0, 11):
+#                 if i + j + z == 10:
+#                     ra_weights.append([i/10, j/10, z/10])
+#
+#     ra_weights_de = deque(ra_weights)
+#
+#     prev_runs_metadata = {}
+#
+#     # Begging with logging
+#     logging.basicConfig(
+#         level=logging.INFO,
+#         format="%(asctime)s [%(levelname)s] %(message)s",
+#         handlers=[
+#             logging.FileHandler(f"{output_dir}/logs/{timestamp}.log"),
+#             logging.StreamHandler(sys.stdout)
+#         ]
+#     )
+#
+#     # Set up the tensorboard dashboard for OLS execution
+#     logging.info(f"Began CBM execution {timestamp}")
+#     writer = SummaryWriter(f"runs/ra/{timestamp}")
+#
+#     iteration = 0
+#     W = []
+#     ccs_weights = []
+#     ccs = []
+#
+#     if continue_execution:
+#         logging.info(f"Loading RA setting from file {file_to_load}")
+#         input_dict = json.load(open(file_to_load))
+#         input_dict["queue"] = [tuple(x) for x in input_dict["queue"]]
+#         for key, value in input_dict.items():
+#             if isinstance(value, list) and key != "queue":
+#                 new_val = [np.asarray(xx) for xx in value]
+#                 input_dict[key] = new_val
+#                 # input_dict[key] = np.asarray(value)
+#         m = input_dict["m"]
+#         W = input_dict["W"]
+#         ccs = input_dict["ccs"]
+#         ccs_weights = input_dict["ccs_weights"]
+#         queue = input_dict["queue"]
+#         iteration = input_dict["iteration"]
+#
+#     start = time.time()
+#
+#     while len(ra_weights_de) != 0:
+#         # Select the weight to process
+#         w = ra_weights_de.popleft()
+#         # logging.info(f"w to check is: {w}")
+#         # Solve the single objective problem with the given weight
+#         logging.info(f"==============================================================================")
+#         logging.info(f"Beginning OLS iteration {iteration}")
+#
+#         value, prev_runs_metadata = solve(w, output_dir, prev_runs_metadata, reuse_mode, MODEL_FILE=model_file, ENV_FILE=env_file)
+#         logging.info(f"Value from PPO execution: {value}")
+#
+#         def is_dominated(self, value):
+#             for v in ccs:
+#                 if (v > value).all():
+#                     return True
+#                 if np.allclose(v, value):
+#                     return True
+#             return False
+#
+#         if not is_dominated(ccs, value):
+#             ccs_weights.append(w)
+#             ccs.append(value)
+#
+#         def remove_obsolete_values(self, value: np.ndarray, ccs, W, ccs_weights) -> List[int]:
+#             removed_indx = []
+#             # Iterate over the values
+#             for i in reversed(range(len(ccs))):
+#                 best_in_all = True
+#                 # Iterate over the visited weights W, and check whether the new value is superior in
+#                 # all visited weights
+#                 for j in range(len(W)):
+#                     w = self.W[j]
+#                     # Check if V*new_value(w) < V*cur_value(w)
+#                     if np.dot(value, w) < np.dot(ccs[i], w):
+#                         best_in_all = False
+#                         break
+#                 if best_in_all:
+#                     # If the current value is dominated by the new value in all weights, remove it!
+#                     logging.info(f"Removed value {ccs[i]}")
+#                     removed_indx.append(i)
+#                     ccs.pop(i)
+#                     ccs_weights.pop(i)
+#             return removed_indx
+#
+#         W.append(w)
+#         # Plot the convex coverage set
+#         ols.plot_ccs(ols.ccs, ols.ccs_weights, writer=writer)
+#
+#         # Save OLS iteration parameters
+#         output_dict = {"m": ols.m,
+#                        "W": ols.W,
+#                        "ccs": ols.ccs,
+#                        "ccs_weights": ols.ccs_weights,
+#                        "queue": ols.queue,
+#                        "iteration": ols.iteration
+#                        }
+#         with open(f'{ols.output_dir}/iters/iter_{ols.iteration}.json', "w") as f:
+#             json.dump(output_dict, f, cls=NumpyEncoder)
+#
+#
+#         """Create a deque with random components, and iteratively move one out"""
+#         # ra_weights = deque(ra_weights)
+#         # ra_weights.rotate(1)
+#         # ra_weights = list(ra_weights)
+#         # ra_weights = ra_weights[1:]
+#
+#
+#         hv = hypervolume(np.zeros(m), ols.ccs)
+#         sp = sparsity(ols.ccs)
+#         tm = time.time() - start
+#
+#         logging.info(f"Hypervolume: {hv:.3f}")
+#         logging.info(f"Sparsity: {sp:.3f}")
+#         logging.info(f"Execution time {tm:.2f} seconds.")
+#         writer.add_scalars("OLS Results",
+#                            {"Hypervolume": hv,
+#                             "Sparsity": sp,
+#                             "Time (sec)": tm},
+#                            ols.iteration)
+#
+#     logging.info(f"OLS execution {ols.timestamp} finished.")
+#     logging.info(f"==============================================================================")
+#
+#     if len(ols.ccs[0]) > 2:
+#         ols.plot_interactive()
 
 if __name__ == "__main__":
     os.chdir("../")
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(np.random.choice(1000)).zfill(3)
-
     model_file = "src/model_params_mt.yaml"
     env_file = "environments/env_params.yaml"
     reuse_mode = "partial"
     epsilon = 0.0001
-    continue_execution = False
     message = ""
 
-    # Update env file parameters
-    new_env_params = {
-    "seed": 1234
-    }
+    cbm = execute_CBM(model_file=model_file, env_file=env_file, reuse_mode=reuse_mode, epsilon=epsilon)
 
-    # Update model file parameters
-    new_model_params = {
-    "seed": 1234
-    }
-
-    files_dict = {env_file: new_env_params, model_file: new_model_params}
-
-    new_filenames = []
-    for filename, new_params in files_dict.items():
-        # Update the yaml files
-        new_filename = filename.replace(".yaml", f"_{timestamp}.yaml")
-        with open(filename, 'r') as outfile:
-            file_dict = yaml.safe_load(outfile)
-            for key, value in new_params.items():
-                file_dict[key] = value
-        with open(new_filename, 'w+') as outfile:
-            yaml.dump(file_dict, outfile, default_flow_style=False)
-
-        new_filenames.append(new_filename)
-        print(f"{new_filename}")
-
-    ols = execute_OLS(model_file=new_filenames[1], env_file=new_filenames[0], reuse_mode=reuse_mode, epsilon=epsilon)
-
-    f = open(f"{ols.output_dir}/logs/README", "w")
+    f = open(f"{cbm.output_dir}/logs/README", "w")
     f.write(message)
     f.close()

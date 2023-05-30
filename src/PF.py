@@ -556,6 +556,8 @@ def solve(w, ols_out_dir, prev_runs_metadata, reuse_mode, cur_m, MODEL_FILE=None
             ppo.run(exec_mode="train", max_val=max_val)
         else:
             closest_run_metadata = prev_runs_metadata[-1]
+            if isinstance(closest_run_metadata, np.ndarray):
+                closest_run_metadata = dict(enumerate(closest_run_metadata.flatten(), 1))[1]
             logging.info(f"Previous run is: {closest_run_metadata}")
             # logging.info(f"Closest run is: {closest_run_metadata} with weights {closest_run_metadata['weights']}")
             ppo.run(exec_mode="continue_training", checkpoint=(closest_run_metadata["output_dir"],

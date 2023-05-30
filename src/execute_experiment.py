@@ -4,6 +4,7 @@ from OLS import execute_OLS
 from RA import execute_RA
 from PF import execute_PF
 from Benchmarks import Benchmarks
+from MO_benchmark import execute_CBM
 from parallel_execution_new import MindmapPPOMultithread
 import os
 import yaml
@@ -17,27 +18,28 @@ if __name__ == "__main__":
 
     model_file = "src/model_params_mt.yaml"
     env_file = "environments/env_params.yaml"
-    reuse_mode = "partial"
+    reuse_mode = "no"
     epsilon = 0.05
     continue_execution = False
-    seed = 1234
-    file_to_load = "outputs/ols/20230410150924_687/iters/iter_48.json" # iter2
+    seed = 1244
+    file_to_load = "outputs/pf/20230418120208_220/iters/iter_12.json"
+    # file_to_load = "outputs/ols/20230410150924_687/iters/iter_48.json" # iter2
     #file_to_load = "outputs/ols/20230401165818_954/iters/iter_25.json" # iter1
-    execution = "ols"  # ols, ra, ppo
+    execution = "cbm"  # ols, ra, ppo, cbm
     message = f"{execution} Execution - {reuse_mode} reuse - seed {seed}"
     run_benchmark = False
 
     # Update env file parameters
     new_env_params = {
         "seed": seed,
-        #"w_rewards": [1.0, 0.0, 0.0]
+        # "w_rewards": [0.33, 0.33, 0.34]
     }
 
     # Update model file parameters
     new_model_params = {
         "seed": seed,
-        "quiet": False,
-        #"n_epochs": 1000
+        # "quiet": False,
+        # "n_epochs": 50
     }
 
     files_dict = {env_file: new_env_params, model_file: new_model_params}
@@ -95,6 +97,13 @@ if __name__ == "__main__":
                         continue_execution=continue_execution, file_to_load=file_to_load)
         # print(f"Weights are {ra.env.w_rewards}")
         f = open(f"{pf.output_dir}/logs/README", "w")
+
+    elif execution == "cbm":
+        reuse_mode = "no"
+        cbm = execute_CBM(model_file=new_filenames[1], env_file=new_filenames[0], reuse_mode=reuse_mode, epsilon=epsilon,
+                        continue_execution=continue_execution, file_to_load=file_to_load)
+        # print(f"Weights are {ra.env.w_rewards}")
+        f = open(f"{cbm.output_dir}/logs/README", "w")
 
     f.write(message)
 

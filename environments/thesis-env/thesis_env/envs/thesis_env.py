@@ -97,6 +97,8 @@ class ThesisEnv(gym.Env):
         # self.carbon_footprint_init = self._compute_carbon_footprint(np.repeat([self.flows_init], repeats=12, axis=0).T)
         self.carbon_footprint_init, _ = self._compute_carbon_footprint(self.flows_init, self.comp_time, self.comp_fft)
 
+        # self.user_cost_init = self._compute_user_cost(self.flows_init)
+
         # Initialize the road network flows with the initial ones, for faster convergence
         for key, link in self.road_network.linkSet.items():
             self.road_network.linkSet[key].flow_init = self.road_network.linkSet[key].flow
@@ -238,15 +240,16 @@ class ThesisEnv(gym.Env):
                     if coord[0] in self.edges[self.components]:
                         node_ids_in_use.append(idx)
 
-                # metric_to_plot = comp_traffic[:, 0]
-                # title_to_plot = f"Timestep {self.time_count}, Month {'January'}, closed segments {np.where(act_init != 0)[0]}"
-                # min_max_to_plot = (0, np.max(comp_traffic[:, 0]))
+                metric_to_plot = comp_traffic[:, 0] / self.capacity[self.components]
+                title_to_plot = f"Timestep {self.time_count}, Month {'January'}, closed segments {np.where(act_init != 0)[0]}"
+                title_to_plot = " "
+                min_max_to_plot = (0, np.max(metric_to_plot))
 
                 # Other plot ideas:
 
-                metric_to_plot = np.zeros(len(self.components))
-                title_to_plot = f"IRI States - Timestep {self.time_count}, Month {'January'}"
-                min_max_to_plot = (0, 5)
+                # metric_to_plot = np.zeros(len(self.components))
+                # title_to_plot = f"IRI States - Timestep {self.time_count}, Month {'January'}"
+                # min_max_to_plot = (0, 5)
                 #
                 # metric_to_plot = action
                 # title_to_plot = f"Actions - Timestep {self.time_count}"
